@@ -4,6 +4,8 @@ Local-first OSINT graph: paste an article, review machine-proposed entities and 
 
 `ISA.md` is the spec. Before building, read its Constraints and the Feature block you are working on. A claim closes only on the probe its Test Strategy row names, run red before the build and green after. Fold anything the work teaches back into the ISA (claims, Decisions, Learning) in the same change.
 
+`PLAN.md` orders the sessions. Its Now section says what is next: read it first and rewrite it at the end of every session.
+
 ## The split
 
 - **Rust owns state.** It is the only process that opens the mnestic store. It owns the domain invariants (Knowledge vs Hypothesis, promotion), the HTTP API, the job runner, and serving the built web UI from the same origin.
