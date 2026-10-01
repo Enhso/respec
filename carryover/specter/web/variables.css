@@ -1,0 +1,43 @@
+:root {
+  --specter-graph-knowledge: #3b82f6;
+  --specter-graph-hypothesis: #f59e0b;
+
+  --specter-edge-sourced: #10b981;
+  --specter-edge-inferred: #f59e0b;
+
+  --specter-bg: #0b0f19;
+  --specter-surface: #1a1f2e;
+  --specter-text: #e6e8ee;
+  --specter-subtext: #9aa3b2;
+  --specter-accent: #3b82f6;
+
+  --specter-font-sans: 'Inter', system-ui, sans-serif;
+  --specter-font-mono: 'JetBrains Mono', ui-monospace, monospace;
+
+  --specter-space-1: 4px;
+  --specter-space-2: 8px;
+  --specter-space-3: 12px;
+  --specter-space-4: 16px;
+  --specter-space-5: 24px;
+  --specter-space-6: 32px;
+
+  --specter-radius-sm: 4px;
+  --specter-radius-md: 8px;
+  --specter-radius-lg: 12px;
+
+  --specter-header-height: 56px;
+  --specter-legend-height: 44px;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background: var(--specter-bg);
+  color: var(--specter-text);
+  font-family: var(--specter-font-sans);
+}
+
+* {
+  box-sizing: border-box;
+}

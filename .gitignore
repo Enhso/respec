@@ -1,0 +1,20 @@
+# Third-party article text, kept only for local evals
+corpus/bodies/
+
+# Operator data and secrets
+.env
+data/
+
+# Rust
+target/
+
+# Python
+.venv/
+__pycache__/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+
+# Web
+node_modules/
+web/dist/
