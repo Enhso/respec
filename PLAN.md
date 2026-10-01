@@ -8,6 +8,13 @@ The order of work, as sessions. A session is one fresh-context work unit, roughl
 
 Estimates are in sessions. Dates depend on weekly capacity (see the end).
 
+## Now
+
+- **Next session:** S1.
+- **Waiting on:**
+  - the friend's OpenRouter and Gemini accounts (needed for the S2 call);
+  - the Events decision (needed by S3).
+
 ## Rules
 
 - **A session closes claims, not tasks.** If its claims are still open at the end, the next session finishes them before starting anything new.
@@ -43,26 +50,34 @@ Estimates are in sessions. Dates depend on weekly capacity (see the end).
 
 **Total:** 18 to 22 sessions, about 4 hours of your labelling, two calls with the friend, and a 1 to 2 week trial.
 
-## Proposed cuts (yours to ratify)
+## Cuts
 
-Each of these comes from the red-team pass:
+Ratified 2026-10-01:
 
-- **Events.** Saves an extraction pass.
-- **Second-order ego expansion** (part of ISC-30).
-- **The shared side panel** (ISC-31).
-- **The search timing claim** (ISC-28). Search itself stays.
+- second-order ego expansion;
+- the shared side panel (ISC-31);
+- the search timing claim (ISC-28). Search itself stays.
 
-Cutting all four removes roughly one to two sessions.
+Events are still open. See ISA Remaining Work.
 
 ## Estimate
 
 **Reference class.** Specter planned four phases and finished them in about three weeks. Then it needed nine more weeks of fixes and never met its exit criterion: an overrun of at least 4x, with no finish. A plan built to avoid Specter's specific failures earns a smaller multiplier, but not 1x. So: **2x the raw session count for the 50% date, 3x for the 80% date.** Re-fit both on real numbers at gate B.
 
-Start date assumed: Monday 5 October 2026. Holidays are not included, so they push the dates later.
+**Capacity.** 2 to 5 sessions a week. The start is assumed to be Monday 5 October 2026.
 
-| Capacity | Raw build | v1, 50% (2x, plus trial) | v1, 80% (3x, plus trial) |
-|----------|-----------|--------------------------|--------------------------|
-| 3 sessions a week | about 7 weeks | mid-January 2027 | early March 2027 |
-| 5 sessions a week | about 4 weeks | mid-December 2026 | mid-January 2027 |
+**Monte Carlo** (20k draws). Inputs:
 
-Usage limits on the Claude plan, more than hours, will likely set the sessions per week. The date gets fixed once that capacity is known.
+- 17 to 21 sessions;
+- an overrun multiplier with median 2x and 80th percentile 3x, lognormal;
+- capacity uniform between 2 and 5 sessions a week;
+- a 1 to 2 week trial;
+- two weeks of holiday slip if the work runs past 20 December.
+
+| Capacity | 10% | 50% | 80% | 95% |
+|----------|-----|-----|-----|-----|
+| always 5 a week | 2026-11-13 | 2026-12-07 | 2027-01-18 | 2027-02-25 |
+| 2 to 5 a week | 2026-11-23 | **2027-01-16** | **2027-03-04** | 2027-05-13 |
+| always 2 a week | 2027-01-09 | 2027-03-11 | 2027-05-19 | 2027-08-23 |
+
+**Proposed target:** aim for mid-January 2027 (the 50% date) and commit to early March 2027 (the 80% date). Re-run the model on real numbers at gate B.

@@ -33,6 +33,7 @@ Euphoric surprise is that match: Respec remembered what he forgot.
 - **No LLM inference.** Hypothesis generation over ego graphs returns only after extraction is measured and trusted.
 - **No identity-cluster view.** v1 offers "merge into existing" or "create new" at review time; split and cluster management come later.
 - **No summaries, digests or run-compare.** The network is the product.
+- **No second-order ego expansion and no shared side panel across graph views.** Cut on 2026-10-01; revisit after the trial.
 - **No paid models, cost tracking or spend caps.** Free models only.
 - **No Russian-language sources, Telegram or X.**
 - **No Windows or Linux packaging.** Development on Linux continues; the shipped target is macOS.
@@ -172,10 +173,10 @@ Why: "this Ivanov is the man from the March story" is the moment the product exi
 ### F4 · Navigation
 Why: the friend finds any entity in seconds and follows the network outward from it.
 
-- [ ] ISC-28: Search returns an entity by name or alias in under one second on the full corpus.
+- [ ] ISC-28: Search returns an entity by name or alias.
 - [ ] ISC-29: An entity profile lists relationships grouped by type, each with its observations and source documents.
-- [ ] ISC-30: The ego graph shows first-order neighbours, expands to second order on request, and uses the fcose layout.
-- [ ] ISC-31: Clicking a node or edge in any graph view opens the same side panel (Specter epic 56's requirement).
+- [ ] ISC-30: The ego graph shows an entity's first-order neighbours in the fcose layout.
+- [ ] ISC-31: [DROPPED — see Decisions 2026-10-01]
 - [ ] ISC-32: A source link opens the stored document text with the cited sentence highlighted.
 
 ### F5 · Providers and models
@@ -253,10 +254,9 @@ Why: measure quality on real articles before trusting or tuning prompts, the cal
 | ISC-25 | screenshot | proposal for an entity that recurs across two corpus articles shows the existing entity as top candidate | top-1 | Interceptor | derived: friend-usable |
 | ISC-26 | curl | merge proposal into entity; entity aliases include proposal name | present | `curl -i` | derived: firewall |
 | ISC-27 | bash | calibration over recurring-entity, transliteration and look-alike pairs prints precision and recall | recorded | `uv run python -m respec_worker.calibrate` | derived: friend-usable |
-| ISC-28 | curl | search for an alias on full corpus | < 1 s | `curl -w '%{time_total}'` | derived: friend-usable |
+| ISC-28 | curl | search for a known alias on the full corpus returns its entity | top-1 | `curl -s localhost:PORT/api/search?q=` | derived: friend-usable |
 | ISC-29 | screenshot | profile of a recurring corpus entity shows grouped relationships with sources | visible | Interceptor | derived: friend-usable |
-| ISC-30 | screenshot | ego graph first order, expanded second order, fcose layout | visible | Interceptor | derived: friend-usable |
-| ISC-31 | screenshot | same panel component on node and edge click in both graph views | identical | Interceptor | derived: friend-usable |
+| ISC-30 | screenshot | ego graph of a recurring entity shows first-order neighbours in fcose layout | visible | Interceptor | derived: friend-usable |
 | ISC-32 | screenshot | source link opens text with sentence highlighted | highlighted | Interceptor | derived: firewall |
 | ISC-33 | bash | keys saved via settings land in the config dir, not the repo | outside repo | `scripts/key-location.sh` | derived: friend-usable |
 | ISC-34 | screenshot | model list with four spec fields per model for each provider | 4 fields | Interceptor | derived: friend-usable |
@@ -303,10 +303,11 @@ Why: measure quality on real articles before trusting or tuning prompts, the cal
   - Host and Origin checks (ISC-46, 47);
   - locked builds, single instance, torn-line tolerance, schema-marker rebuild (ISC-48 to 51);
   - masked keys and a diagnostics zip (ISC-59, 60).
-  Proposed cuts await the principal: Events, second-order ego expansion, the shared side panel (ISC-31), and the search timing claim (ISC-28).
+  Proposed cuts: Events, second-order ego expansion, the shared side panel (ISC-31), and the search timing claim (ISC-28).
 - 2026-10-01: refined: ISC-5, 10, 11, 13, 14, 22, 23, 27, 38, 42 and 44 were tightened so each probe can actually fail. ISC-14, 23, 43 and 44 gained children (.1).
 - 2026-10-01: **No LiteLLM.** Its model-prefix routing caused Specter's transport errors. Its PyPI package was compromised on 2026-03-24 (versions 1.82.7 and 1.82.8). Specter's lock has 1.90.0, so this machine was not exposed. Both providers expose OpenAI-compatible chat, so one small client with a fixed host table replaces it, and ISC-37 holds by construction.
 - 2026-10-01: **Fictional fixtures only.** Specter's seed attached an unverified intelligence affiliation to a real, named businessman. It is dropped from `carryover/`, the Vision uses an invented name, and the seed and debug records are removed from `corpus/`. Specter's repo is private (the GitHub API returns 404), so the label was never public. Respec's first commit was rewritten before any push.
+- 2026-10-01: **Cuts ratified by the principal:** second-order expansion (ISC-30 refined), the shared side panel (ISC-31 dropped), and the search timing (ISC-28 refined). Events stay open pending a decision.
 - 2026-10-01: **Estimate multiplier: 2x for 50%, 3x for 80%.** Specter overran its plan by at least 4x and never finished. The multiplier is re-fit on actuals at the loop gate.
 - 2026-10-01: **Skills for the restart.**
   - Before building: FirstPrinciples, RedTeam on this ISA, prototype for the store schema fog.
@@ -327,7 +328,7 @@ Why: measure quality on real articles before trusting or tuning prompts, the cal
 
 ## Remaining Work
 
-- [ ] Fix the v1 date once weekly capacity is known (estimate in `PLAN.md`).
-- [ ] Ratify or reject the proposed cuts: Events, second-order expansion, ISC-31, ISC-28.
+- [ ] Pick the v1 date to commit to. Proposed: aim for 2027-01-16 (50%) and commit to 2027-03-04 (80%), per `PLAN.md`.
+- [ ] Decide Events: as an entity kind with no third pass (recommended), cut, or kept as a separate pass.
 - [ ] Create the public GitHub repo `Enhso/respec` and push (needs the principal; no `gh` CLI on this machine).
 - [ ] Decide the fate of `~/projects/specter` and its Aura instance. Its data is preserved in `data/dumps/2026-07-24.cypher`.
