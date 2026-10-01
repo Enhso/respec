@@ -13,6 +13,8 @@ Estimates are in sessions. Dates depend on weekly capacity (see the end).
 - **Next session:** S1.
 - **Waiting on:**
   - the friend's OpenRouter and Gemini accounts (needed for the S2 call).
+- **Where S1 starts from:** copy the layout of `~/projects/iw`. That means `Cargo.toml`, `src/store.rs` (`open_sqlite` and `open_memory`) and `python/pyproject.toml`.
+- **Dev keys:** live model calls during development read keys from a local, gitignored `.env`. Specter's local `.env` has working OpenRouter and Gemini keys to copy.
 
 ## Rules
 
