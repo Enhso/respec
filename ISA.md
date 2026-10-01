@@ -3,7 +3,7 @@ task: "Respec: rebuild Specter local-first and prove the loop"
 slug: 20261001-respec
 project: respec
 phase: marking
-progress: 0/64
+progress: 0/66
 started: 2026-10-01T19:12:36Z
 updated: 2026-10-01T21:00:00Z
 principal_stated_goal: "we'll build a new fork of it keeping only essential and reusable items (if any) and start from scratch"
@@ -104,10 +104,9 @@ Derived anchors used in Test Strategy:
 
 ## Not yet specified
 
-- fog: three extraction passes, one chunked pass, or entities-then-relationships. Resolved by the F7 evals, which run on the worker alone.
+- fog: whether long articles need chunking within the two passes. Resolved by the F7 evals, which run on the worker alone.
 - fog: the mnestic schema. Open: Knowledge and Hypothesis as separate relations or a status column, and how valid time and transaction time map onto observations. Resolved by a throwaway store prototype before F2.
 - fog: where model specs come from (each provider's model-list API, or a curated file) and which providers beyond OpenRouter and Gemini. Candidates: OpenRouter's models API and Gemini's models.list. Settled in the worker session.
-- fog: whether Events are extracted in v1 or deferred. Proposed cut (saves a pass), awaiting the principal.
 - fog: how a breaking mnestic upgrade is applied (replay from files, or export and import). Designed alongside ISC-5.
 
 ## Features
@@ -147,6 +146,7 @@ Why: one pasted article travels the whole pipeline on a free model before anythi
 - [ ] ISC-53: Every failure class (auth, daily quota, rate limit, model gone, truncated, network) maps to a plain-language message with a next step.
 - [ ] ISC-54: Anti: no request to Gemini carries prompt-caching directives (Specter's cached-content calls hit a zero quota).
 - [ ] ISC-55: Jobs run one at a time, in submission order.
+- [ ] ISC-61: Extraction makes two passes per article: pass 1 proposes entities, Events included (with date and place), and pass 2 proposes relationships, including participants to Events. There is no third pass.
 
 ### F2 · Review and the firewall
 Why: nothing reaches Knowledge without a deliberate approval, and every approved fact leads back to its sentence.
@@ -202,9 +202,10 @@ Why: the friend installs once from written instructions and never needs a termin
 ### F7 · Extraction quality
 Why: measure quality on real articles before trusting or tuning prompts, the calibration Specter never ran.
 
-- [ ] ISC-42: A labelled eval set of at least 10 corpus articles, at least 4 of them over 15k characters, lists each article's key entities and key relationships.
+- [ ] ISC-42: A labelled eval set of at least 10 corpus articles, at least 4 of them over 15k characters, lists each article's key entities, key events and key relationships.
 - [ ] ISC-43: Recall of labelled key entities is at least 0.8 on the eval set with the chosen free model. (after: ISC-42)
 - [ ] ISC-43.1: Recall of labelled key relationships is at least 0.6 on the eval set (provisional, re-set at the quality gate). (after: ISC-42)
+- [ ] ISC-62: Recall of labelled key events is at least 0.6 on the eval set. Below that, Events are dropped or a third pass returns, with a Decisions row either way. (after: ISC-42)
 - [ ] ISC-44: Anti: a proposal whose sentence is not found in the document text, under one normalisation rule for quotes and whitespace, is dropped and counted, never staged.
 - [ ] ISC-44.1: Every staged sentence is stored with its character offsets in the document text.
 
@@ -240,6 +241,7 @@ Why: measure quality on real articles before trusting or tuning prompts, the cal
 | ISC-53 | bash | worker test: each failure class maps to a message with a next step | all classes | `uv run pytest -k failure_messages` | derived: friend-usable |
 | ISC-54 | bash | worker test: Gemini request bodies carry no cache directives | 0 | `uv run pytest -k gemini_no_cache` | derived: prove-the-loop |
 | ISC-55 | bash | submit three jobs; at most one worker process runs at a time | <= 1 | `cargo test serial_queue` | derived: prove-the-loop |
+| ISC-61 | bash | worker test on a fixture: exactly two model calls; Event entities carry date and place and have participant relationships | 2 calls | `uv run pytest -k two_pass_events` | derived: prove-the-loop |
 | ISC-18 | screenshot | queue grouped by document with sentences visible | visible | Interceptor | derived: firewall |
 | ISC-19 | curl | approve then fetch entity: observation has document id and sentence | present | `curl -i localhost:PORT/api/...` | derived: firewall |
 | ISC-20 | curl | reject then queue omits item; log has rejection | pass | `curl -i` + log grep | derived: firewall |
@@ -273,6 +275,7 @@ Why: measure quality on real articles before trusting or tuning prompts, the cal
 | ISC-42 | bash | eval set has at least 10 labelled articles, at least 4 over 15k chars, with entities and relationships | >= 10, >= 4 | `jq` over `evals/labels.json` | derived: prove-the-loop |
 | ISC-43 | eval | key-entity recall across the eval set, 3 samples | ≥ 0.8 | `uv run python -m respec_worker.evals` | derived: prove-the-loop |
 | ISC-43.1 | eval | key-relationship recall across the eval set, 3 samples | >= 0.6 | `uv run python -m respec_worker.evals` | derived: prove-the-loop |
+| ISC-62 | eval | key-event recall across the eval set, 3 samples | >= 0.6 | `uv run python -m respec_worker.evals` | derived: prove-the-loop |
 | ISC-44 | bash | worker tests: fabricated sentence dropped; curly-quote and whitespace variants matched | pass | `uv run pytest -k verbatim` | derived: firewall |
 | ISC-44.1 | bash | worker test: offsets slice the document text back to the stored sentence | equal | `uv run pytest -k offsets` | derived: firewall |
 
@@ -307,7 +310,8 @@ Why: measure quality on real articles before trusting or tuning prompts, the cal
 - 2026-10-01: refined: ISC-5, 10, 11, 13, 14, 22, 23, 27, 38, 42 and 44 were tightened so each probe can actually fail. ISC-14, 23, 43 and 44 gained children (.1).
 - 2026-10-01: **No LiteLLM.** Its model-prefix routing caused Specter's transport errors. Its PyPI package was compromised on 2026-03-24 (versions 1.82.7 and 1.82.8). Specter's lock has 1.90.0, so this machine was not exposed. Both providers expose OpenAI-compatible chat, so one small client with a fixed host table replaces it, and ISC-37 holds by construction.
 - 2026-10-01: **Fictional fixtures only.** Specter's seed attached an unverified intelligence affiliation to a real, named businessman. It is dropped from `carryover/`, the Vision uses an invented name, and the seed and debug records are removed from `corpus/`. Specter's repo is private (the GitHub API returns 404), so the label was never public. Respec's first commit was rewritten before any push.
-- 2026-10-01: **Cuts ratified by the principal:** second-order expansion (ISC-30 refined), the shared side panel (ISC-31 dropped), and the search timing (ISC-28 refined). Events stay open pending a decision.
+- 2026-10-01: **Cuts ratified by the principal:** second-order expansion (ISC-30 refined), the shared side panel (ISC-31 dropped), and the search timing (ISC-28 refined). 
+- 2026-10-01: **Events are a kind of entity.** Specter's separate third pass produced no Events in production; both stored Events were hand-entered. So pass 1 extracts Events with their date and place, pass 2 links participants to them, and matching reuses entity matching (ISC-61). Gate A measures event recall (ISC-62). Cost: longer pass-1 output on long articles.
 - 2026-10-01: **Estimate multiplier: 2x for 50%, 3x for 80%.** Specter overran its plan by at least 4x and never finished. The multiplier is re-fit on actuals at the loop gate.
 - 2026-10-01: **Skills for the restart.**
   - Before building: FirstPrinciples, RedTeam on this ISA, prototype for the store schema fog.
@@ -329,6 +333,5 @@ Why: measure quality on real articles before trusting or tuning prompts, the cal
 ## Remaining Work
 
 - [ ] Pick the v1 date to commit to. Proposed: aim for 2027-01-16 (50%) and commit to 2027-03-04 (80%), per `PLAN.md`.
-- [ ] Decide Events: as an entity kind with no third pass (recommended), cut, or kept as a separate pass.
 - [ ] Create the public GitHub repo `Enhso/respec` and push (needs the principal; no `gh` CLI on this machine).
 - [ ] Decide the fate of `~/projects/specter` and its Aura instance. Its data is preserved in `data/dumps/2026-07-24.cypher`.
