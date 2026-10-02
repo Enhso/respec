@@ -5,7 +5,7 @@ project: respec
 phase: marking
 progress: 0/66
 started: 2026-10-01T19:12:36Z
-updated: 2026-10-02T18:45:00Z
+updated: 2026-10-02T19:10:00Z
 principal_stated_goal: "we'll build a new fork of it keeping only essential and reusable items (if any) and start from scratch"
 principal_stated_goal_source: conversation
 principal_stated_goal_signal: 4
@@ -310,6 +310,9 @@ Why: measure quality on real articles before trusting or tuning prompts, the cal
 - 2026-10-02: **Domain docs split out.** The glossary moved from this ISA to `CONTEXT.md`, which adds Proposal, Candidate, Entity, Event, Relationship and Operator. ADRs 0001 to 0004 in `docs/adr/` record the store, the Rust/Python split, one instance per operator, and Events as Entities. This ISA keeps the dated log.
 - 2026-10-02: **"Event" means only the domain Event.** The worker's JSON Lines are progress messages; ISC-14, 14.1 and 35 were reworded.
 - 2026-10-02: **Issues only for multi-session blocks.** `/to-issues` slices S2, S3, S6 and S8 into `.scratch/` issues at their start, after a one-time `/setup-matt-pocock-skills`. Single-session rows work from their PLAN row and claims. Rewriting PLAN.md's Now section is the session handoff.
+- 2026-10-02: **Date ratified.** Aim for 2027-01-16, the 50% date, and commit to 2027-03-04, the 80% date. Both are re-fit on actuals at gate B.
+- 2026-10-02: **Repo live.** `github.com/Enhso/respec` is public and holds every commit so far, which the CI probes for ISC-1 and 2 rely on.
+- 2026-10-02: **Specter retired.** Its Aura instance was deleted for idleness. `~/projects/specter` stays as a read-only souvenir, with its graph data in `data/dumps/2026-07-24.cypher`.
 
 ## Learning
 
@@ -321,9 +324,3 @@ Why: measure quality on real articles before trusting or tuning prompts, the cal
   - refuted by: Specter's free-tier failures came from account state: an OpenRouter provider allowlist, and Gemini projects with zero quota on dated models and on cached content (`specter/docs/log.md`, lines 4807 to 4946). `iw`'s key reaches a single free model.
   - learned: provider access is a property of each account, so it has to be tested on the friend's own keys and Mac.
   - criterion now: ISC-45, in week one.
-
-## Remaining Work
-
-- [ ] Pick the v1 date to commit to. Proposed: aim for 2027-01-16 (50%) and commit to 2027-03-04 (80%), per `PLAN.md`.
-- [ ] Create the public GitHub repo `Enhso/respec` and push (needs the principal; no `gh` CLI on this machine).
-- [ ] Decide the fate of `~/projects/specter` and its Aura instance. Its data is preserved in `data/dumps/2026-07-24.cypher`.

@@ -83,4 +83,4 @@ Events stay, as an entity kind with no third pass (decided 2026-10-01).
 | 2 to 5 a week | 2026-11-23 | **2027-01-16** | **2027-03-04** | 2027-05-13 |
 | always 2 a week | 2027-01-09 | 2027-03-11 | 2027-05-19 | 2027-08-23 |
 
-**Proposed target:** aim for mid-January 2027 (the 50% date) and commit to early March 2027 (the 80% date). Re-run the model on real numbers at gate B.
+**Target (ratified 2026-10-02):** aim for 2027-01-16 (the 50% date) and commit to 2027-03-04 (the 80% date). Re-run the model on real numbers at gate B.
