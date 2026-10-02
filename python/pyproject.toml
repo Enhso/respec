@@ -1,0 +1,33 @@
+[project]
+name = "respec-worker"
+version = "0.1.0"
+description = "Respec extraction worker: fetches articles, calls models, reports progress as JSON Lines"
+requires-python = ">=3.12"
+dependencies = []
+
+[project.scripts]
+respec-worker = "respec_worker.cli:main"
+
+[dependency-groups]
+dev = ["mypy>=1.15", "pytest>=8.3", "ruff>=0.11"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/respec_worker"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.mypy]
+strict = true
+files = ["src", "tests"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

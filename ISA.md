@@ -3,9 +3,9 @@ task: "Respec: rebuild Specter local-first and prove the loop"
 slug: 20261001-respec
 project: respec
 phase: marking
-progress: 0/66
+progress: 4/66
 started: 2026-10-01T19:12:36Z
-updated: 2026-10-02T19:10:00Z
+updated: 2026-10-02T19:00:00Z
 principal_stated_goal: "we'll build a new fork of it keeping only essential and reusable items (if any) and start from scratch"
 principal_stated_goal_source: conversation
 principal_stated_goal_signal: 4
@@ -100,15 +100,15 @@ Why: the gates and data rules that let every later slice be trusted, set up befo
 
 - [ ] ISC-1: CI runs the Rust gates (fmt, clippy `-D warnings`, test) on every push.
 - [ ] ISC-2: CI runs the Python gates (ruff, mypy strict, pytest) on every push.
-- [ ] ISC-3: The mnestic dependency is pinned to an exact version in `Cargo.toml`.
-- [ ] ISC-4: Anti: no test reads or writes outside a temporary directory.
+- [x] ISC-3: The mnestic dependency is pinned to an exact version in `Cargo.toml`.
+- [x] ISC-4: Anti: no test reads or writes outside a temporary directory.
 - [ ] ISC-5: After approve, edit, reject and merge fixtures, deleting the store and running `respec rebuild` reproduces a Knowledge graph with the same content hash, transaction times excluded. (after: ISC-26)
-- [ ] ISC-6: Anti: the server listens on 127.0.0.1 only.
+- [x] ISC-6: Anti: the server listens on 127.0.0.1 only.
 - [ ] ISC-7: Anti: no provider key appears in the repo, the data directory's logs, or job output.
 - [ ] ISC-8: `carryover/` is gone by v1. Every item in it was ported under test or dropped with a Decisions row.
 - [ ] ISC-46: Anti: a request whose Host header is not Respec's loopback address and port is rejected.
 - [ ] ISC-47: Anti: a state-changing request whose Origin is not Respec's own is rejected.
-- [ ] ISC-48: CI builds with `--locked` (Rust) and `--frozen` (Python) against committed lock files.
+- [x] ISC-48: CI builds with `--locked` (Rust) and `--frozen` (Python) against committed lock files.
 - [ ] ISC-49: A second Respec instance on the same data directory refuses to start.
 - [ ] ISC-50: A torn last line in an append-only file, left by a crash mid-write, is skipped with a warning and startup continues.
 - [ ] ISC-51: When the store's schema marker differs from the binary's, Respec rebuilds the store from the files at startup.
@@ -202,7 +202,7 @@ Why: measure quality on real articles before trusting or tuning prompts, the cal
 | ISC-3 | bash | mnestic requirement uses `=` exact pin | match | `grep -E 'mnestic = "=' Cargo.toml` | derived: local-store |
 | ISC-4 | bash | full test run with HOME set to an empty temp dir leaves it empty | 0 files | `scripts/test-isolation.sh` | derived: local-store |
 | ISC-5 | bash | after approve/edit/reject/merge fixtures, rebuild yields the same content hash (tx time excluded) | identical | `scripts/rebuild-parity.sh` | derived: local-store |
-| ISC-6 | bash | listening sockets for the respec process are loopback only | 127.0.0.1 only | `lsof -iTCP -sTCP:LISTEN -a -c respec` | literal |
+| ISC-6 | bash | listening sockets for the respec process are loopback only | 127.0.0.1 only | `lsof -nP -iTCP -sTCP:LISTEN -a -c respec` | literal |
 | ISC-7 | bash | key patterns absent from repo, data-dir logs, job output after a live run | 0 hits | `scripts/key-leak-scan.sh` | literal |
 | ISC-8 | bash | carryover directory does not exist | absent | `test ! -e carryover` | literal |
 | ISC-46 | curl | request with Host: evil.example is rejected | 403 | `curl -i -H 'Host: evil.example' localhost:PORT/api/health` | derived: firewall |
@@ -313,6 +313,12 @@ Why: measure quality on real articles before trusting or tuning prompts, the cal
 - 2026-10-02: **Date ratified.** Aim for 2027-01-16, the 50% date, and commit to 2027-03-04, the 80% date. Both are re-fit on actuals at gate B.
 - 2026-10-02: **Repo live.** `github.com/Enhso/respec` is public and holds every commit so far, which the CI probes for ISC-1 and 2 rely on.
 - 2026-10-02: **Specter retired.** Its Aura instance was deleted for idleness. `~/projects/specter` stays as a read-only souvenir, with its graph data in `data/dumps/2026-07-24.cypher`.
+- 2026-10-02: **Foundations (PLAN S1).**
+  - One crate, `respec`, edition 2024, with mnestic `=0.18.0` on its default features (bundled sqlite). The server binds `127.0.0.1:7377` and has only `/api/health`; serving `web/dist` arrives with the S2 stub page.
+  - One CI workflow with four jobs (rust, python, web, isolation). One workflow keeps the ISC-1 and 2 probe honest, because `runs?per_page=1` returns a single run. The isolation job runs `scripts/test-isolation.sh` on every push, so ISC-4 stays enforced rather than checked once.
+  - `astral-sh/setup-uv` publishes no floating major tag, so CI pins `v10.2.0`.
+  - The web shell is React 19, Vite 8 and TypeScript 7, the native compiler, which typechecks the Vite types cleanly.
+- 2026-10-02: refined: the ISC-6 probe gains `-nP`. Without it `lsof` prints `localhost:7377`, which cannot tell IPv4 loopback from `::1` or a resolver quirk.
 
 ## Learning
 
