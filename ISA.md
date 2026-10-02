@@ -3,9 +3,9 @@ task: "Respec: rebuild Specter local-first and prove the loop"
 slug: 20261001-respec
 project: respec
 phase: marking
-progress: 9/66
+progress: 10/66
 started: 2026-10-01T19:12:36Z
-updated: 2026-10-02T19:40:00Z
+updated: 2026-10-02T20:30:00Z
 principal_stated_goal: "we'll build a new fork of it keeping only essential and reusable items (if any) and start from scratch"
 principal_stated_goal_source: conversation
 principal_stated_goal_signal: 4
@@ -170,7 +170,7 @@ Why: the friend picks a working free model himself, without editing a file, and 
 - [ ] ISC-34: For each provider with a valid key, settings lists its available models with context window, max output, free or paid, and a short description.
 - [ ] ISC-35: Switching the model in settings applies to the next job with no restart.
 - [ ] ISC-36: A "test this model" button makes one small live call and shows success or a plain-language failure reason.
-- [ ] ISC-37: Anti: a key is only ever sent to its own provider's API host.
+- [x] ISC-37: Anti: a key is only ever sent to its own provider's API host.
 - [x] ISC-59: Anti: the API never returns a stored key; settings show only its last four characters.
 
 ### F6 · Mac install and handoff
@@ -332,6 +332,12 @@ Why: measure quality on real articles before trusting or tuning prompts, the cal
   - The Host check admits exactly `127.0.0.1:7377` and `localhost:7377`. The Origin check covers every method but GET, HEAD and OPTIONS, and fails closed: a missing or `null` Origin gets 403, since only the page posts and browsers always send Origin on a POST. Terminal POSTs need `-H 'Origin: http://127.0.0.1:7377'`.
   - refined: the ISC-47 probe targets `POST /api/settings/keys`, because `/api/documents` does not exist until S6.
   - ISC-59 moves from S11 to S2: its probe went green from the same work.
+- 2026-10-02: **Live test call through the worker (S2 issue 02).**
+  - The server runs the worker's venv executable directly: `RESPEC_WORKER`, default `python/.venv/bin/respec-worker`. Running it this way needs neither uv nor a PATH at run time, which matters under launchd.
+  - It clears both key variables from the inherited environment and sets only the chosen Provider's (`OPENROUTER_API_KEY` or `GEMINI_API_KEY`, the dev `.env` names). Keys never go on the command line.
+  - The worker's HTTP client is httpx, synchronous, with no redirects followed. Its endpoint comes only from the Provider table in `providers.py`.
+  - Progress messages are JSON Lines told apart by `kind`: `started`, `done`, `failed`. `failed` carries one of six reasons: `auth`, `quota`, `rate_limit`, `model_unavailable`, `network`, `other`. One fixture per shape lives in `contracts/fixtures/messages/`. This starts ISC-17, which stays open until the extraction messages join it in S3.
+  - Default free Models, chosen by live calls: `nvidia/nemotron-3-super-120b-a12b:free` on OpenRouter and `gemini-flash-lite-latest` on Gemini. Choosing a Model stays S11.
 
 ## Learning
 
@@ -343,6 +349,12 @@ Why: measure quality on real articles before trusting or tuning prompts, the cal
   - refuted by: Specter's free-tier failures came from account state: an OpenRouter provider allowlist, and Gemini projects with zero quota on dated models and on cached content (`specter/docs/log.md`, lines 4807 to 4946). `iw`'s key reaches a single free model.
   - learned: provider access is a property of each account, so it has to be tested on the friend's own keys and Mac.
   - criterion now: ISC-45, in week one.
+- conjectured: any listed free Model is a safe default.
+  - refuted by: live calls on 2026-10-02.
+    - On OpenRouter, `google/gemma-4-31b-it:free`, `iw`'s Model, returned 429 on every try, and `qwen/qwen3.8-27b:free` on two of three.
+    - On Gemini, pinned Models such as `gemini-2.5-flash-lite` return 404 "no longer available to new users". The full Flash Models took 24 s or more on a one-word prompt, against under 1 s for Flash-Lite.
+  - learned: free-Model availability is volatile and differs per account, so a hardcoded default will rot. The test call's 60 s client timeout suits a one-word reply only; S2 issue 03's real-sized pass needs a far longer read timeout (the 2026-10-01 probe took 213 s).
+  - criterion now: ISC-52 (fallback across Models), ISC-34 and 35 (Model choice in settings).
 
 ## Verification
 
@@ -355,3 +367,4 @@ Why: measure quality on real articles before trusting or tuning prompts, the cal
 - ISC-46: the probe returned 200 at `b229646` and 403 after the build. `cargo test foreign_host_rejected` covers `/api/health` and `/`.
 - ISC-47: the retargeted probe returned 404 at `b229646` and 403 after the build. `cargo test foreign_origin_rejected` also rejects a missing and a `null` Origin. Removing either check turns its test red.
 - ISC-59: `curl -s localhost:7377/api/settings` returned 404 at `b229646`. After saving a fake key it returned only its last four (`wxyz`). The full key had 0 hits in the server log, and `keys.json` was mode 600 in a 700 directory.
+- ISC-37: `uv run pytest -k provider_hosts` selected no tests at `b6acc73`, so pytest exited 5. After the build it passes 4. Pointing Gemini's URL at OpenRouter's host turned it red. Live, both Providers answered through `POST /api/test-call`, and their keys had 0 hits in the server log.

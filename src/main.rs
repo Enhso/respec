@@ -7,6 +7,7 @@ use tracing_subscriber::EnvFilter;
 
 use respec::keys::KeyStore;
 use respec::server;
+use respec::worker::Worker;
 
 /// The directory holding keys: `RESPEC_CONFIG_DIR` if set, else `Respec`
 /// inside the platform config directory (`~/Library/Application Support` on
@@ -24,6 +25,16 @@ fn web_dir() -> PathBuf {
     std::env::var_os("RESPEC_WEB_DIR").map_or_else(|| PathBuf::from("web/dist"), PathBuf::from)
 }
 
+/// The worker executable: `RESPEC_WORKER` if set, else the project virtualenv's
+/// `respec-worker` script (relative to the working directory, like the web
+/// dir). Running the script directly needs no uv or PATH at run time.
+fn worker_path() -> PathBuf {
+    std::env::var_os("RESPEC_WORKER").map_or_else(
+        || PathBuf::from("python/.venv/bin/respec-worker"),
+        PathBuf::from,
+    )
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
@@ -32,7 +43,13 @@ async fn main() -> anyhow::Result<()> {
 
     let config_dir = config_dir()?;
     let web_dir = web_dir();
-    tracing::info!(config_dir = %config_dir.display(), web_dir = %web_dir.display(), "paths");
+    let worker_path = worker_path();
+    tracing::info!(
+        config_dir = %config_dir.display(),
+        web_dir = %web_dir.display(),
+        worker = %worker_path.display(),
+        "paths"
+    );
 
     let addr = server::addr(server::PORT);
     let listener = tokio::net::TcpListener::bind(addr)
@@ -45,7 +62,12 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!(%addr, "respec listening");
     axum::serve(
         listener,
-        server::router(port, KeyStore::new(config_dir), web_dir),
+        server::router(
+            port,
+            KeyStore::new(config_dir),
+            web_dir,
+            Worker::new(worker_path),
+        ),
     )
     .await
     .context("serving requests")?;

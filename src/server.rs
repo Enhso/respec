@@ -5,7 +5,7 @@ use std::net::{Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use axum::extract::{Request, State};
+use axum::extract::{FromRef, Request, State};
 use axum::http::{Method, StatusCode, header};
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
@@ -16,6 +16,7 @@ use serde_json::{Value, json};
 use tower_http::services::ServeDir;
 
 use crate::keys::{ApiKey, KeyStore, Keys, Provider};
+use crate::worker::{Finished, Worker};
 
 /// The port Respec listens on. The operator's bookmark points here.
 pub const PORT: u16 = 7377;
@@ -26,18 +27,43 @@ pub fn addr(port: u16) -> SocketAddr {
     SocketAddr::from((Ipv4Addr::LOCALHOST, port))
 }
 
+/// What the handlers share: the saved keys and the worker to run.
+#[derive(Clone)]
+struct AppState {
+    keys: Arc<KeyStore>,
+    worker: Arc<Worker>,
+}
+
+impl FromRef<AppState> for Arc<KeyStore> {
+    fn from_ref(state: &AppState) -> Self {
+        state.keys.clone()
+    }
+}
+
+impl FromRef<AppState> for Arc<Worker> {
+    fn from_ref(state: &AppState) -> Self {
+        state.worker.clone()
+    }
+}
+
 /// Builds the router: the API under `/api`, the built web UI from `web_dir`
 /// for everything else, and the Host and Origin checks over all of it.
 /// `port` is the port the listener actually bound; the checks admit only
-/// Respec's own loopback address on that port.
-pub fn router(port: u16, keys: KeyStore, web_dir: PathBuf) -> Router {
+/// Respec's own loopback address on that port. `worker` is what the API runs
+/// for jobs.
+pub fn router(port: u16, keys: KeyStore, web_dir: PathBuf, worker: Worker) -> Router {
     let guard = Arc::new(Guard::new(port));
+    let state = AppState {
+        keys: Arc::new(keys),
+        worker: Arc::new(worker),
+    };
     Router::new()
         .route("/api/health", get(health))
         .route("/api/settings", get(settings))
         .route("/api/settings/keys", post(save_keys))
+        .route("/api/test-call", post(test_call))
         .fallback_service(ServeDir::new(web_dir))
-        .with_state(Arc::new(keys))
+        .with_state(state)
         // The last layer added runs first, so the Host check precedes the
         // Origin check.
         .layer(middleware::from_fn_with_state(guard.clone(), check_origin))
@@ -175,6 +201,62 @@ async fn save_keys(
     Ok(Json(Settings::from_keys(&keys)))
 }
 
+/// The body of `POST /api/test-call`.
+#[derive(Deserialize)]
+struct TestCallRequest {
+    provider: Provider,
+}
+
+/// Runs one test call through the worker with the Provider's saved key and
+/// relays the outcome: 200 with `ok` true or false, 422 when no key is saved,
+/// 502 when the worker itself failed (the cause goes to the log, never the
+/// page).
+async fn test_call(
+    State(store): State<Arc<KeyStore>>,
+    State(worker): State<Arc<Worker>>,
+    Json(request): Json<TestCallRequest>,
+) -> Result<Json<Value>, (StatusCode, String)> {
+    let provider = request.provider;
+    let keys = store.load().map_err(|err| {
+        tracing::error!(%err, "reading saved keys failed");
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "could not read saved keys".to_owned(),
+        )
+    })?;
+    let Some(key) = keys.get(&provider) else {
+        return Err((
+            StatusCode::UNPROCESSABLE_ENTITY,
+            format!("no key is saved for {}; save one first", provider.as_str()),
+        ));
+    };
+    let finished = worker.test_call(provider, key).await.map_err(|err| {
+        tracing::error!(%err, ?provider, "test call failed");
+        (
+            StatusCode::BAD_GATEWAY,
+            "the worker failed; see the server log".to_owned(),
+        )
+    })?;
+    Ok(Json(match finished {
+        Finished::Done {
+            provider,
+            model,
+            reply,
+        } => {
+            tracing::info!(?provider, %model, "test call succeeded");
+            json!({ "ok": true, "provider": provider, "model": model, "reply": reply })
+        }
+        Finished::Failed {
+            provider,
+            reason,
+            message,
+        } => {
+            tracing::info!(?provider, ?reason, "test call failed");
+            json!({ "ok": false, "provider": provider, "reason": reason, "message": message })
+        }
+    }))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -182,20 +264,28 @@ mod tests {
     use std::fs;
     use std::os::unix::fs::PermissionsExt;
     use std::path::Path;
+    use std::time::{Duration, Instant};
     use tempfile::TempDir;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::{TcpListener, TcpStream};
+    use tokio::sync::Mutex;
     use tower::ServiceExt;
 
     /// Not bound to anything: `oneshot` tests need only a port to build the
     /// allowed Host and Origin values from.
     const PORT_UNDER_TEST: u16 = 4242;
     const FAKE_KEY: &str = "test-key-0123456789abcdef";
+    const FAKE_GEMINI_KEY: &str = "gemini-key-wxyz";
+
+    /// Held by every test that runs a fake worker, so they run one at a time.
+    /// Writing an executable while another test's spawn is mid-fork can make
+    /// the exec fail with "text file busy".
+    static FAKE_WORKERS: Mutex<()> = Mutex::const_new(());
 
     /// A router over fresh temporary config and web directories. The config
     /// directory is a not-yet-created child, so saving has to create it.
     struct Fixture {
-        _root: TempDir,
+        root: TempDir,
         config: PathBuf,
         web: PathBuf,
     }
@@ -209,16 +299,35 @@ mod tests {
             Self {
                 config: root.path().join("Respec"),
                 web,
-                _root: root,
+                root,
             }
         }
 
+        /// A router whose worker does not exist.
         fn router(&self) -> Router {
+            self.router_with(Worker::new(self.root.path().join("no-such-worker")))
+        }
+
+        fn router_with(&self, worker: Worker) -> Router {
             router(
                 PORT_UNDER_TEST,
                 KeyStore::new(&self.config),
                 self.web.clone(),
+                worker,
             )
+        }
+
+        /// A worker that is a `/bin/sh` script running `script`.
+        fn fake_worker(&self, script: &str) -> Worker {
+            let path = self.root.path().join("fake-worker");
+            fs::write(&path, format!("#!/bin/sh\n{script}\n")).expect("write fake worker");
+            fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).expect("chmod");
+            Worker::new(path)
+        }
+
+        /// Whether a fake worker that touches `ran` was ever started.
+        fn worker_ran(&self) -> bool {
+            self.root.path().join("ran").exists()
         }
     }
 
@@ -239,9 +348,21 @@ mod tests {
     }
 
     fn post_keys(origin: Option<&str>, body: &str) -> Request<Body> {
+        post_json("/api/settings/keys", origin, body)
+    }
+
+    fn post_test_call(origin: Option<&str>, provider: &str) -> Request<Body> {
+        post_json(
+            "/api/test-call",
+            origin,
+            &format!(r#"{{"provider":"{provider}"}}"#),
+        )
+    }
+
+    fn post_json(uri: &str, origin: Option<&str>, body: &str) -> Request<Body> {
         let mut req = Request::builder()
             .method(Method::POST)
-            .uri("/api/settings/keys")
+            .uri(uri)
             .header(header::HOST, host(PORT_UNDER_TEST))
             .header(header::CONTENT_TYPE, "application/json");
         if let Some(origin) = origin {
@@ -285,6 +406,7 @@ mod tests {
             local.port(),
             KeyStore::new(&fixture.config),
             fixture.web.clone(),
+            Worker::new(fixture.root.path().join("no-such-worker")),
         );
         tokio::spawn(async move { axum::serve(listener, app).await });
 
@@ -450,5 +572,162 @@ mod tests {
         let (status, body) = send(&app, get_with_host("/", Some(&host(PORT_UNDER_TEST)))).await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(body, "<h1>stub page</h1>");
+    }
+
+    /// Prints a `started` line, then a `done` line whose reply reports the
+    /// arguments received and the length of each key variable. A length is
+    /// shown instead of the key so the test can see what arrived without the
+    /// key ever being printed.
+    const REPORTING_WORKER: &str = r#"
+echo '{"kind":"started","provider":"openrouter","model":"fake-model"}'
+printf '{"kind":"done","provider":"%s","model":"fake-model","reply":"args=%s or=%s gem=%s"}\n' \
+    "$3" "$*" "${#OPENROUTER_API_KEY}" "${#GEMINI_API_KEY}"
+"#;
+
+    async fn json_body(app: &Router, req: Request<Body>) -> (StatusCode, Value) {
+        let (status, body) = send(app, req).await;
+        let json = serde_json::from_str(&body).unwrap_or(Value::String(body));
+        (status, json)
+    }
+
+    #[tokio::test]
+    async fn test_call_hands_the_worker_only_the_chosen_key_and_only_through_its_environment() {
+        let _serial = FAKE_WORKERS.lock().await;
+        let fixture = Fixture::new();
+        let app = fixture.router_with(fixture.fake_worker(REPORTING_WORKER));
+        let both = format!(r#"{{"openrouter":"{FAKE_KEY}","gemini":"{FAKE_GEMINI_KEY}"}}"#);
+        assert_eq!(save(&app, &both).await.0, StatusCode::OK);
+
+        for (provider, openrouter_len, gemini_len) in [
+            ("openrouter", FAKE_KEY.len(), 0),
+            ("gemini", 0, FAKE_GEMINI_KEY.len()),
+        ] {
+            let req = post_test_call(Some(&origin(PORT_UNDER_TEST)), provider);
+            let (status, body) = json_body(&app, req).await;
+
+            assert_eq!(status, StatusCode::OK, "{body}");
+            let reply = format!(
+                "args=test-call --provider {provider} or={openrouter_len} gem={gemini_len}"
+            );
+            assert_eq!(
+                body,
+                json!({ "ok": true, "provider": provider, "model": "fake-model", "reply": reply })
+            );
+            let text = body.to_string();
+            assert!(!text.contains(FAKE_KEY) && !text.contains(FAKE_GEMINI_KEY));
+        }
+    }
+
+    #[tokio::test]
+    async fn test_call_relays_a_failed_message_as_ok_false() {
+        let _serial = FAKE_WORKERS.lock().await;
+        let fixture = Fixture::new();
+        let worker = fixture.fake_worker(
+            r#"
+echo '{"kind":"started","provider":"openrouter","model":"fake-model"}'
+echo '{"kind":"failed","provider":"openrouter","reason":"rate_limit","message":"The rate limit was reached; try again later."}'
+exit 1
+"#,
+        );
+        let app = fixture.router_with(worker);
+        save(&app, &format!(r#"{{"openrouter":"{FAKE_KEY}"}}"#)).await;
+
+        let req = post_test_call(Some(&origin(PORT_UNDER_TEST)), "openrouter");
+        let (status, body) = json_body(&app, req).await;
+
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(
+            body,
+            json!({
+                "ok": false,
+                "provider": "openrouter",
+                "reason": "rate_limit",
+                "message": "The rate limit was reached; try again later.",
+            })
+        );
+    }
+
+    #[tokio::test]
+    async fn test_call_without_a_final_message_gives_502_without_the_output() {
+        let _serial = FAKE_WORKERS.lock().await;
+        let fixture = Fixture::new();
+        let worker = fixture.fake_worker(
+            r#"
+echo 'garbage SECRET-OUTPUT, not json'
+echo '{"kind":"started","provider":"openrouter","model":"fake-model"}'
+exit 3
+"#,
+        );
+        let app = fixture.router_with(worker);
+        save(&app, &format!(r#"{{"openrouter":"{FAKE_KEY}"}}"#)).await;
+
+        let req = post_test_call(Some(&origin(PORT_UNDER_TEST)), "openrouter");
+        let (status, body) = send(&app, req).await;
+
+        assert_eq!(status, StatusCode::BAD_GATEWAY);
+        assert_eq!(body, "the worker failed; see the server log");
+    }
+
+    #[tokio::test]
+    async fn test_call_with_a_worker_that_cannot_start_gives_502() {
+        let fixture = Fixture::new();
+        let app = fixture.router();
+        save(&app, &format!(r#"{{"openrouter":"{FAKE_KEY}"}}"#)).await;
+
+        let req = post_test_call(Some(&origin(PORT_UNDER_TEST)), "openrouter");
+        let (status, body) = send(&app, req).await;
+
+        assert_eq!(status, StatusCode::BAD_GATEWAY);
+        assert_eq!(body, "the worker failed; see the server log");
+    }
+
+    #[tokio::test]
+    async fn test_call_stops_waiting_for_a_worker_that_overruns_its_time_limit() {
+        let _serial = FAKE_WORKERS.lock().await;
+        let fixture = Fixture::new();
+        let worker = fixture
+            .fake_worker("exec sleep 30")
+            .with_timeout(Duration::from_millis(300));
+        let app = fixture.router_with(worker);
+        save(&app, &format!(r#"{{"openrouter":"{FAKE_KEY}"}}"#)).await;
+
+        let started = Instant::now();
+        let req = post_test_call(Some(&origin(PORT_UNDER_TEST)), "openrouter");
+        let (status, _) = send(&app, req).await;
+
+        assert_eq!(status, StatusCode::BAD_GATEWAY);
+        assert!(started.elapsed() < Duration::from_secs(10));
+    }
+
+    #[tokio::test]
+    async fn test_call_without_a_saved_key_gives_422_and_starts_no_worker() {
+        let _serial = FAKE_WORKERS.lock().await;
+        let fixture = Fixture::new();
+        let app = fixture.router_with(fixture.fake_worker(r#"touch "$(dirname "$0")/ran""#));
+        // A saved Gemini key does not stand in for the missing OpenRouter one.
+        save(&app, &format!(r#"{{"gemini":"{FAKE_GEMINI_KEY}"}}"#)).await;
+
+        let req = post_test_call(Some(&origin(PORT_UNDER_TEST)), "openrouter");
+        let (status, body) = send(&app, req).await;
+
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+        assert_eq!(body, "no key is saved for openrouter; save one first");
+        let req = post_test_call(Some(&origin(PORT_UNDER_TEST)), "nowhere");
+        assert_eq!(send(&app, req).await.0, StatusCode::UNPROCESSABLE_ENTITY);
+        assert!(!fixture.worker_ran(), "a worker was started");
+    }
+
+    #[tokio::test]
+    async fn test_call_is_behind_the_origin_check() {
+        let _serial = FAKE_WORKERS.lock().await;
+        let fixture = Fixture::new();
+        let app = fixture.router_with(fixture.fake_worker(r#"touch "$(dirname "$0")/ran""#));
+        save(&app, &format!(r#"{{"openrouter":"{FAKE_KEY}"}}"#)).await;
+
+        for bad in [Some("https://evil.example"), None] {
+            let (status, _) = send(&app, post_test_call(bad, "openrouter")).await;
+            assert_eq!(status, StatusCode::FORBIDDEN, "origin {bad:?}");
+        }
+        assert!(!fixture.worker_ran(), "a rejected request started a worker");
     }
 }

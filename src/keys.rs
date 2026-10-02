@@ -28,6 +28,17 @@ pub enum Provider {
     Gemini,
 }
 
+impl Provider {
+    /// The name used in the JSON API, the worker's `--provider` argument and
+    /// the contract fixtures: the same string serde writes.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::OpenRouter => "openrouter",
+            Self::Gemini => "gemini",
+        }
+    }
+}
+
 /// A provider API key. Its `Debug` output is redacted, and it has no
 /// `Display` or `Serialize`, so a key cannot reach a log line or a response
 /// by accident. Reading the value takes an explicit [`ApiKey::expose`].
@@ -188,6 +199,16 @@ mod tests {
         assert_eq!(format!("{key:?}"), "ApiKey(***)");
         let keys: Keys = [(Provider::Gemini, key)].into();
         assert!(!format!("{keys:?}").contains(FAKE));
+    }
+
+    #[test]
+    fn provider_name_matches_its_serialised_form() {
+        for provider in [Provider::OpenRouter, Provider::Gemini] {
+            assert_eq!(
+                serde_json::to_value(provider).expect("serialises"),
+                provider.as_str()
+            );
+        }
     }
 
     #[test]
