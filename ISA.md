@@ -3,9 +3,9 @@ task: "Respec: rebuild Specter local-first and prove the loop"
 slug: 20261001-respec
 project: respec
 phase: marking
-progress: 6/66
+progress: 9/66
 started: 2026-10-01T19:12:36Z
-updated: 2026-10-02T18:56:00Z
+updated: 2026-10-02T19:40:00Z
 principal_stated_goal: "we'll build a new fork of it keeping only essential and reusable items (if any) and start from scratch"
 principal_stated_goal_source: conversation
 principal_stated_goal_signal: 4
@@ -106,8 +106,8 @@ Why: the gates and data rules that let every later slice be trusted, set up befo
 - [x] ISC-6: Anti: the server listens on 127.0.0.1 only.
 - [ ] ISC-7: Anti: no provider key appears in the repo, the data directory's logs, or job output.
 - [ ] ISC-8: `carryover/` is gone by v1. Every item in it was ported under test or dropped with a Decisions row.
-- [ ] ISC-46: Anti: a request whose Host header is not Respec's loopback address and port is rejected.
-- [ ] ISC-47: Anti: a state-changing request whose Origin is not Respec's own is rejected.
+- [x] ISC-46: Anti: a request whose Host header is not Respec's loopback address and port is rejected.
+- [x] ISC-47: Anti: a state-changing request whose Origin is not Respec's own is rejected.
 - [x] ISC-48: CI builds with `--locked` (Rust) and `--frozen` (Python) against committed lock files.
 - [ ] ISC-49: A second Respec instance on the same data directory refuses to start.
 - [ ] ISC-50: A torn last line in an append-only file, left by a crash mid-write, is skipped with a warning and startup continues.
@@ -171,7 +171,7 @@ Why: the friend picks a working free model himself, without editing a file, and 
 - [ ] ISC-35: Switching the model in settings applies to the next job with no restart.
 - [ ] ISC-36: A "test this model" button makes one small live call and shows success or a plain-language failure reason.
 - [ ] ISC-37: Anti: a key is only ever sent to its own provider's API host.
-- [ ] ISC-59: Anti: the API never returns a stored key; settings show only its last four characters.
+- [x] ISC-59: Anti: the API never returns a stored key; settings show only its last four characters.
 
 ### F6 · Mac install and handoff
 Why: the friend installs once from written instructions and never needs a terminal again.
@@ -206,7 +206,7 @@ Why: measure quality on real articles before trusting or tuning prompts, the cal
 | ISC-7 | bash | key patterns absent from repo, data-dir logs, job output after a live run | 0 hits | `scripts/key-leak-scan.sh` | literal |
 | ISC-8 | bash | carryover directory does not exist | absent | `test ! -e carryover` | literal |
 | ISC-46 | curl | request with Host: evil.example is rejected | 403 | `curl -i -H 'Host: evil.example' localhost:PORT/api/health` | derived: firewall |
-| ISC-47 | curl | POST with Origin: https://evil.example is rejected | 403 | `curl -i -X POST -H 'Origin: https://evil.example' localhost:PORT/api/documents` | derived: firewall |
+| ISC-47 | curl | POST with Origin: https://evil.example is rejected | 403 | `curl -i -X POST -H 'Origin: https://evil.example' localhost:PORT/api/settings/keys` | derived: firewall |
 | ISC-48 | bash | CI workflow uses --locked and --frozen; lock files tracked | present | `grep -E -- '--locked|--frozen' .github/workflows/*.yml` | derived: local-store |
 | ISC-49 | bash | start a second instance on the same data dir | exits non-zero | `cargo test second_instance_refused` | derived: local-store |
 | ISC-50 | bash | append a half-written line to a log file; startup warns and continues | starts | `cargo test torn_line_tolerated` | derived: local-store |
@@ -326,6 +326,12 @@ Why: measure quality on real articles before trusting or tuning prompts, the cal
 - 2026-10-02: **S2 sliced** into six `.scratch/` issues: the page with key entry, a live test call, a long-article test extraction, the macOS release build, the installer, and pairing call 1.
   - ISC-46 and 47 move from S6 to S2. From pairing call 1 the build runs at every login on the friend's Mac, and without the Host check any page he visits could drive it through DNS rebinding.
   - ISC-37 moves from S11 to S2, because the fixed Provider-to-host table is built with the HTTP client.
+- 2026-10-02: **Page, keys and the Host and Origin checks (S2 issue 01).**
+  - The binary serves the built web UI from disk: `RESPEC_WEB_DIR`, default `web/dist`. It is not embedded, so the Rust build and CI stay independent of npm, and the release bundle ships the UI beside the binary.
+  - Keys live in `keys.json` in the config directory: `RESPEC_CONFIG_DIR`, else `Respec` in the platform config directory (`~/Library/Application Support/Respec` on macOS). The directory is 0700 and the file 0600, written by temp file and rename. A key type with a redacted `Debug` and no `Display` or `Serialize` keeps keys out of logs and responses by construction. Keys under 8 characters are refused, so the last four shown never amount to the key.
+  - The Host check admits exactly `127.0.0.1:7377` and `localhost:7377`. The Origin check covers every method but GET, HEAD and OPTIONS, and fails closed: a missing or `null` Origin gets 403, since only the page posts and browsers always send Origin on a POST. Terminal POSTs need `-H 'Origin: http://127.0.0.1:7377'`.
+  - refined: the ISC-47 probe targets `POST /api/settings/keys`, because `/api/documents` does not exist until S6.
+  - ISC-59 moves from S11 to S2: its probe went green from the same work.
 
 ## Learning
 
@@ -346,3 +352,6 @@ Why: measure quality on real articles before trusting or tuning prompts, the cal
 - ISC-4: `scripts/test-isolation.sh` green. A planted test writing `~/leak.txt` turned it red (commit `62458c5`).
 - ISC-6: `lsof -nP` shows only `127.0.0.1:7377`, and the LAN address refuses connections (commit `62458c5`).
 - ISC-48: `grep` finds `--locked` and `--frozen` in `ci.yml`, and all three lock files are tracked (commit `62458c5`).
+- ISC-46: the probe returned 200 at `b229646` and 403 after the build. `cargo test foreign_host_rejected` covers `/api/health` and `/`.
+- ISC-47: the retargeted probe returned 404 at `b229646` and 403 after the build. `cargo test foreign_origin_rejected` also rejects a missing and a `null` Origin. Removing either check turns its test red.
+- ISC-59: `curl -s localhost:7377/api/settings` returned 404 at `b229646`. After saving a fake key it returned only its last four (`wxyz`). The full key had 0 hits in the server log, and `keys.json` was mode 600 in a 700 directory.

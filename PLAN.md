@@ -10,14 +10,15 @@ Estimates are in sessions. Dates depend on weekly capacity (see the end).
 
 ## Now
 
-- **Next session:** S2. S1 closed all six of its claims.
+- **Next session:** S2, wave 2: issues 02 (live test call) and 04 (macOS release build) can run in parallel. Then 03 and 05, then the pairing call (06).
 - **Waiting on:**
   - the friend's OpenRouter and Gemini accounts, needed only by the S2 pairing call. He sets up his keys on his own Mac, so building S2 does not wait on them.
-- **Where S2 starts from:** a skeleton.
-  - `respec` binds `127.0.0.1:7377` and answers only `/api/health`. It does not serve `web/dist` yet, and the stub page needs that from the same origin.
-  - `src/store.rs` opens mnestic, but `main` opens no store.
-  - `respec-worker` only prints its version.
-- **S2 issues:** six in `.scratch/s2-tracer-to-his-mac/issues/`, 01 to 05 for agents and 06 the pairing call. Start at 01; after it, 02 and 04 can run in parallel.
+- **Where S2 stands:** issue 01 is done (ISC-46, 47 and 59 closed).
+  - `respec` serves `web/dist` from disk (`RESPEC_WEB_DIR`) on the same origin as the API, with a stub settings form for the two keys.
+  - Keys are saved to `keys.json` in the config directory (`RESPEC_CONFIG_DIR`, else `~/Library/Application Support/Respec`). The API shows only the last four.
+  - Every request passes the Host check, and every POST needs `Origin: http://127.0.0.1:7377` or `http://localhost:7377`. A missing Origin is rejected, so terminal POSTs must send one.
+  - `src/store.rs` opens mnestic, but `main` opens no store. `respec-worker` only prints its version.
+- **S2 issues:** six in `.scratch/s2-tracer-to-his-mac/issues/`, 01 to 05 for agents and 06 the pairing call.
 - **Dev keys:** live model calls during development read your own OpenRouter and Gemini keys from the local, gitignored `.env`, in place since 2026-10-02.
 - **Gates:** CI runs four jobs on every push: rust, python, web and isolation. When the web app gains tests, add them to `scripts/test-isolation.sh`.
 
