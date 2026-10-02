@@ -19,5 +19,8 @@ __pycache__/
 node_modules/
 web/dist/
 
+# Release bundles (scripts/bundle.sh)
+dist/
+
 # Local issue tracker (docs/agents/issue-tracker.md)
 .scratch/
