@@ -319,6 +319,10 @@ Why: measure quality on real articles before trusting or tuning prompts, the cal
   - `astral-sh/setup-uv` publishes no floating major tag, so CI pins `v10.2.0`.
   - The web shell is React 19, Vite 8 and TypeScript 7, the native compiler, which typechecks the Vite types cleanly.
 - 2026-10-02: refined: the ISC-6 probe gains `-nP`. Without it `lsof` prints `localhost:7377`, which cannot tell IPv4 loopback from `::1` or a resolver quirk.
+- 2026-10-02: **Agent skills configured** (`docs/agents/`).
+  - `.scratch/` is gitignored, so issues stay on this machine and never reach the public repo.
+  - Domain docs are multi-context: `CONTEXT-MAP.md` points at the shared `CONTEXT.md` and at `src/`, `python/` and `web/` glossaries, each created when it first needs a term. Every current term crosses the contract, so nothing moved.
+  - Dev keys are the principal's own, in the local `.env`. The friend sets up his keys on his own Mac at pairing call 1.
 
 ## Learning
 

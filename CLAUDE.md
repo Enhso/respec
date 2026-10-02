@@ -33,3 +33,17 @@ Local-first OSINT graph: paste an article, review machine-proposed entities and 
 - Python: `uv` for everything, ruff and mypy strict clean, pytest, `orjson` for JSON, `logger.error` for errors. Docstrings on public functions.
 - Rust: `cargo fmt`, `cargo clippy -- -D warnings` clean, `cargo test`.
 - No emoji in code, docs or commits.
+
+## Agent skills
+
+### Issue tracker
+
+Local markdown under `.scratch/<feature>/`, gitignored so issues stay on this machine; no PR triage. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+The five default role strings, written as a `Status:` line in each issue file. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Multi-context: `CONTEXT-MAP.md` points at the shared root `CONTEXT.md` and at per-area glossaries for `src/`, `python/` and `web/`, created when first needed. See `docs/agents/domain.md`.

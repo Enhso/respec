@@ -18,3 +18,6 @@ __pycache__/
 # Web
 node_modules/
 web/dist/
+
+# Local issue tracker (docs/agents/issue-tracker.md)
+.scratch/
