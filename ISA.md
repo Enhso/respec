@@ -330,3 +330,12 @@ Why: measure quality on real articles before trusting or tuning prompts, the cal
   - refuted by: Specter's free-tier failures came from account state: an OpenRouter provider allowlist, and Gemini projects with zero quota on dated models and on cached content (`specter/docs/log.md`, lines 4807 to 4946). `iw`'s key reaches a single free model.
   - learned: provider access is a property of each account, so it has to be tested on the friend's own keys and Mac.
   - criterion now: ISC-45, in week one.
+
+## Verification
+
+- ISC-1: CI run `37050320199` green, with `fmt`, `clippy` and `test` as separate steps (commit `62458c5`).
+- ISC-2: CI run `37050320199` green, with `ruff`, `mypy` and `pytest` as separate steps (commit `62458c5`).
+- ISC-3: `grep` matches `mnestic = "=0.18.0"` (commit `62458c5`).
+- ISC-4: `scripts/test-isolation.sh` green. A planted test writing `~/leak.txt` turned it red (commit `62458c5`).
+- ISC-6: `lsof -nP` shows only `127.0.0.1:7377`, and the LAN address refuses connections (commit `62458c5`).
+- ISC-48: `grep` finds `--locked` and `--frozen` in `ci.yml`, and all three lock files are tracked (commit `62458c5`).
