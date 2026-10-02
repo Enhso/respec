@@ -3,9 +3,9 @@ task: "Respec: rebuild Specter local-first and prove the loop"
 slug: 20261001-respec
 project: respec
 phase: marking
-progress: 4/66
+progress: 6/66
 started: 2026-10-01T19:12:36Z
-updated: 2026-10-02T19:00:00Z
+updated: 2026-10-02T18:56:00Z
 principal_stated_goal: "we'll build a new fork of it keeping only essential and reusable items (if any) and start from scratch"
 principal_stated_goal_source: conversation
 principal_stated_goal_signal: 4
@@ -98,8 +98,8 @@ Derived anchors used in Test Strategy:
 ### F0 · Cross-cutting
 Why: the gates and data rules that let every later slice be trusted, set up before the first feature instead of retrofitted in month three.
 
-- [ ] ISC-1: CI runs the Rust gates (fmt, clippy `-D warnings`, test) on every push.
-- [ ] ISC-2: CI runs the Python gates (ruff, mypy strict, pytest) on every push.
+- [x] ISC-1: CI runs the Rust gates (fmt, clippy `-D warnings`, test) on every push.
+- [x] ISC-2: CI runs the Python gates (ruff, mypy strict, pytest) on every push.
 - [x] ISC-3: The mnestic dependency is pinned to an exact version in `Cargo.toml`.
 - [x] ISC-4: Anti: no test reads or writes outside a temporary directory.
 - [ ] ISC-5: After approve, edit, reject and merge fixtures, deleting the store and running `respec rebuild` reproduces a Knowledge graph with the same content hash, transaction times excluded. (after: ISC-26)
@@ -315,7 +315,7 @@ Why: measure quality on real articles before trusting or tuning prompts, the cal
 - 2026-10-02: **Specter retired.** Its Aura instance was deleted for idleness. `~/projects/specter` stays as a read-only souvenir, with its graph data in `data/dumps/2026-07-24.cypher`.
 - 2026-10-02: **Foundations (PLAN S1).**
   - One crate, `respec`, edition 2024, with mnestic `=0.18.0` on its default features (bundled sqlite). The server binds `127.0.0.1:7377` and has only `/api/health`; serving `web/dist` arrives with the S2 stub page.
-  - One CI workflow with four jobs (rust, python, web, isolation). One workflow keeps the ISC-1 and 2 probe honest, because `runs?per_page=1` returns a single run. The isolation job runs `scripts/test-isolation.sh` on every push, so ISC-4 stays enforced rather than checked once.
+  - One CI workflow with four jobs (rust, python, web, isolation), green on its first run (`37050320199`, about 2.5 min cold). One workflow keeps the ISC-1 and 2 probe honest, because `runs?per_page=1` returns a single run. The isolation job runs `scripts/test-isolation.sh` on every push, so ISC-4 stays enforced rather than checked once.
   - `astral-sh/setup-uv` publishes no floating major tag, so CI pins `v10.2.0`.
   - The web shell is React 19, Vite 8 and TypeScript 7, the native compiler, which typechecks the Vite types cleanly.
 - 2026-10-02: refined: the ISC-6 probe gains `-nP`. Without it `lsof` prints `localhost:7377`, which cannot tell IPv4 loopback from `::1` or a resolver quirk.

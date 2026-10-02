@@ -10,12 +10,16 @@ Estimates are in sessions. Dates depend on weekly capacity (see the end).
 
 ## Now
 
-- **Next session:** S1.
+- **Next session:** S2. S1 closed all six of its claims.
 - **Waiting on:**
   - the friend's OpenRouter and Gemini accounts (needed for the S2 call).
-- **Where S1 starts from:** copy the layout of `~/projects/iw`. That means `Cargo.toml`, `src/store.rs` (`open_sqlite` and `open_memory`) and `python/pyproject.toml`.
+- **Where S2 starts from:** a skeleton.
+  - `respec` binds `127.0.0.1:7377` and answers only `/api/health`. It does not serve `web/dist` yet, and the stub page needs that from the same origin.
+  - `src/store.rs` opens mnestic, but `main` opens no store.
+  - `respec-worker` only prints its version.
 - **Before S2:** run `/setup-matt-pocock-skills` once (tracker in `.scratch/`), then `/to-issues` on the S2 row.
 - **Dev keys:** live model calls during development read keys from a local, gitignored `.env`. Specter's local `.env` has working OpenRouter and Gemini keys to copy.
+- **Gates:** CI runs four jobs on every push: rust, python, web and isolation. When the web app gains tests, add them to `scripts/test-isolation.sh`.
 
 ## Rules
 
