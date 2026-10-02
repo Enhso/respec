@@ -323,6 +323,9 @@ Why: measure quality on real articles before trusting or tuning prompts, the cal
   - `.scratch/` is gitignored, so issues stay on this machine and never reach the public repo.
   - Domain docs are multi-context: `CONTEXT-MAP.md` points at the shared `CONTEXT.md` and at `src/`, `python/` and `web/` glossaries, each created when it first needs a term. Every current term crosses the contract, so nothing moved.
   - Dev keys are the principal's own, in the local `.env`. The friend sets up his keys on his own Mac at pairing call 1.
+- 2026-10-02: **S2 sliced** into six `.scratch/` issues: the page with key entry, a live test call, a long-article test extraction, the macOS release build, the installer, and pairing call 1.
+  - ISC-46 and 47 move from S6 to S2. From pairing call 1 the build runs at every login on the friend's Mac, and without the Host check any page he visits could drive it through DNS rebinding.
+  - ISC-37 moves from S11 to S2, because the fixed Provider-to-host table is built with the HTTP client.
 
 ## Learning
 
