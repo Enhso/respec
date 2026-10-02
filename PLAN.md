@@ -14,6 +14,7 @@ Estimates are in sessions. Dates depend on weekly capacity (see the end).
 - **Waiting on:**
   - the friend's OpenRouter and Gemini accounts (needed for the S2 call).
 - **Where S1 starts from:** copy the layout of `~/projects/iw`. That means `Cargo.toml`, `src/store.rs` (`open_sqlite` and `open_memory`) and `python/pyproject.toml`.
+- **Before S2:** run `/setup-matt-pocock-skills` once (tracker in `.scratch/`), then `/to-issues` on the S2 row.
 - **Dev keys:** live model calls during development read keys from a local, gitignored `.env`. Specter's local `.env` has working OpenRouter and Gemini keys to copy.
 
 ## Rules
@@ -28,6 +29,7 @@ Estimates are in sessions. Dates depend on weekly capacity (see the end).
   - **A, quality known:** recall is measured on labelled articles using the worker alone. No store, server or UI is needed for this.
   - **B, loop proven:** five real articles go end to end through the running app.
 - **Kill switch at gate A.** If free-model extraction is too weak to be worth reviewing, stop and re-plan before building anything that depends on it.
+- **Slice only the multi-session rows.** S2, S3, S6 and S8 start with `/to-issues`. Other rows work straight from their row and its claims.
 - **The ISA stays the spec.** Fog gets resolved where the table says. Anything a session learns goes into the ISA in the same commit.
 
 ## Sessions
@@ -35,8 +37,8 @@ Estimates are in sessions. Dates depend on weekly capacity (see the end).
 | # | Session | Claims closed | Sessions | Your time |
 |---|---------|---------------|----------|-----------|
 | S1 | **Foundations.** One Cargo crate (axum 0.8, tokio, mnestic exact-pinned, sqlite engine, the `iw` layout). Worker package (uv, hatchling, a `respec-worker` CLI). Vite app shell. GitHub Actions for Rust, Python and web, with locked builds. Test-isolation script and the `contracts/fixtures/` folder. | ISC-1, 2, 3, 4, 6, 48 | 1 | review |
-| S2 | **Tracer to his Mac.** A stub server page with key entry and a "run test extraction" button. It runs one real-sized pass on a long Insider URL through the new HTTP client. Release build for `aarch64-apple-darwin` on a GitHub macOS runner. `install.sh` installs uv, runs `respec setup` (`uv sync --frozen`, a LaunchAgent with absolute paths), then **pairing call 1**: the friend's keys and Mac, a reboot, his bookmark. | ISC-45; early ISC-39; macOS 27 unknowns | 2 + call | 30 min call |
-| S3 | **Worker.** Port fetch, canonicalisation, prompts and schemas, reshaped to two passes with Events as an entity kind. Output budget from the model's spec. Truncation; per-minute and per-day 429s; fallback across providers; plain failure messages; no cache directives to Gemini. Sentence normalisation with stored offsets. JSON Lines progress events. | ISC-12, 13, 14, 14.1, 44, 44.1, 52, 53, 54, 61; ISC-17 worker side; fog: spec source | 2 | none |
+| S2 | **Tracer to his Mac.** A stub server page with key entry and a "run test extraction" button. It runs one real-sized pass on a long Insider URL through the new HTTP client. Release build for `aarch64-apple-darwin` on a GitHub macOS runner. `install.sh` installs uv, runs `respec setup` (`uv sync --frozen`, a LaunchAgent with absolute paths), then **pairing call 1**: the friend's keys and Mac, a reboot, his bookmark, and five minutes showing him the proposals for an article he picks: would he review that list? | ISC-45; early ISC-39; macOS 27 unknowns | 2 + call | 30 min call |
+| S3 | **Worker.** Port fetch, canonicalisation, prompts and schemas, reshaped to two passes with Events as an entity kind. Output budget from the model's spec. Truncation; per-minute and per-day 429s; fallback across providers; plain failure messages; no cache directives to Gemini. Sentence normalisation with stored offsets. JSON Lines progress messages. | ISC-12, 13, 14, 14.1, 44, 44.1, 52, 53, 54, 61; ISC-17 worker side; fog: spec source | 2 | none |
 | S4 | **Gate A, quality.** You label key entities, events and relationships for 10+ articles, 4+ of them over 15k characters. Recall eval across two or three free models, run on the worker alone. Settle chunking for long articles. **Kill switch.** | ISC-42, 43, 43.1, 62 | 1 | about 3 h labelling |
 | S5 | **Store.** A throwaway mnestic prototype first, then the real store module: entities, relationships, observations with valid time, full-text search, the two-hop ego query, and a rebuild from files. | fog: schema, upgrades | 1 | review |
 | S6 | **Server.** Data directory with append-only files (torn-line tolerant). Documents API for URL or dated pasted text. A serial job runner that spawns the worker, saves each pass and resumes. Proposals into the store as Hypothesis. Host and Origin checks, single instance, rebuild on schema change. | ISC-9, 10, 15, 46, 47, 49, 50, 51, 55; ISC-17 server side | 2 | none |

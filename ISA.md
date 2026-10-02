@@ -5,7 +5,7 @@ project: respec
 phase: marking
 progress: 0/66
 started: 2026-10-01T19:12:36Z
-updated: 2026-10-01T21:00:00Z
+updated: 2026-10-02T18:45:00Z
 principal_stated_goal: "we'll build a new fork of it keeping only essential and reusable items (if any) and start from scratch"
 principal_stated_goal_source: conversation
 principal_stated_goal_signal: 4
@@ -41,24 +41,7 @@ Euphoric surprise is that match: Respec remembered what he forgot.
 
 ## Language
 
-**Knowledge / Hypothesis**
-Knowledge is what an operator approved and every item cites a source. Hypothesis is everything machine-proposed or unresolved.
-_Avoid_: verified / unverified, confirmed, true / false.
-A Hypothesis item becomes Knowledge only through an approval.
-
-**Observation**
-One dated report of a relationship by one document, with its verbatim sentence.
-_Avoid_: edge (a relationship holds many observations).
-Many observations of the same relationship are grouped under it, never duplicated as new relationships.
-
-**Document text**
-The stored body of a source article, saved at ingest and never re-fetched.
-_Avoid_: description (Specter stuffed article bodies into `Document.description`).
-
-**Provider / Model**
-A provider is the service holding the key (OpenRouter, Google Gemini). A model is one entry in a provider's list.
-_Avoid_: using a bare model string as if it named the provider (Specter's missing prefixes caused five weeks of transport errors).
-On Gemini, "free" is a per-project quota, not a property of the model; only a live call tells the truth.
+The glossary lives in `CONTEXT.md`, and the hard-to-reverse decisions in `docs/adr/`. This ISA keeps the dated Decisions log.
 
 ## Principles
 
@@ -108,6 +91,7 @@ Derived anchors used in Test Strategy:
 - fog: the mnestic schema. Open: Knowledge and Hypothesis as separate relations or a status column, and how valid time and transaction time map onto observations. Resolved by a throwaway store prototype before F2.
 - fog: where model specs come from (each provider's model-list API, or a curated file) and which providers beyond OpenRouter and Gemini. Candidates: OpenRouter's models API and Gemini's models.list. Settled in the worker session.
 - fog: how a breaking mnestic upgrade is applied (replay from files, or export and import). Designed alongside ISC-5.
+- fog: what a rejection means when a later Document proposes the same Relationship: shown again, shown as previously rejected, or suppressed. Settled in the review session (PLAN S8).
 
 ## Features
 
@@ -232,8 +216,8 @@ Why: measure quality on real articles before trusting or tuning prompts, the cal
 | ISC-11 | bash | live smoke: each of 5 articles has at least one relationship proposal with a verified sentence | 5/5 | `scripts/smoke-live.sh` | derived: prove-the-loop |
 | ISC-12 | bash | worker test feeds a length-truncated fixture reply | `output_truncated` | `uv run pytest -k truncated` | derived: prove-the-loop |
 | ISC-13 | bash | worker test: max_tokens = min(model max output, context window - prompt tokens) | equal | `uv run pytest -k output_budget` | derived: prove-the-loop |
-| ISC-14 | bash | worker test: mocked per-minute 429 then 200 succeeds and emits a rate-limit event | pass | `uv run pytest -k rate_limit` | derived: prove-the-loop |
-| ISC-14.1 | bash | worker test: mocked per-day quota 429 emits a paused event with provider and retry time | pass | `uv run pytest -k daily_quota` | derived: friend-usable |
+| ISC-14 | bash | worker test: mocked per-minute 429 then 200 succeeds and emits a rate-limit progress message | pass | `uv run pytest -k rate_limit` | derived: prove-the-loop |
+| ISC-14.1 | bash | worker test: mocked per-day quota 429 emits a paused progress message with provider and retry time | pass | `uv run pytest -k daily_quota` | derived: friend-usable |
 | ISC-15 | bash | integration test kills worker after pass 1; resumed job skips pass 1 | pass | `cargo test resume_after_kill` | derived: prove-the-loop |
 | ISC-16 | screenshot | job card shows each state transition live | all states seen | Interceptor | derived: friend-usable |
 | ISC-17 | bash | both suites load every file in `contracts/fixtures/` | pass | `cargo test contract && uv run pytest -k contract` | derived: prove-the-loop |
@@ -262,7 +246,7 @@ Why: measure quality on real articles before trusting or tuning prompts, the cal
 | ISC-32 | screenshot | source link opens text with sentence highlighted | highlighted | Interceptor | derived: firewall |
 | ISC-33 | bash | keys saved via settings land in the config dir, not the repo | outside repo | `scripts/key-location.sh` | derived: friend-usable |
 | ISC-34 | screenshot | model list with four spec fields per model for each provider | 4 fields | Interceptor | derived: friend-usable |
-| ISC-35 | curl | switch model; next job's events name the new model | new model | `curl -i` | derived: friend-usable |
+| ISC-35 | curl | switch model; next job's progress messages name the new model | new model | `curl -i` | derived: friend-usable |
 | ISC-36 | screenshot | test button success and failure messages | both shown | Interceptor | derived: friend-usable |
 | ISC-37 | bash | unit test of provider-to-host mapping for every provider | exact hosts | `uv run pytest -k provider_hosts` | literal |
 | ISC-59 | curl | GET settings returns only the last four characters of each key | masked | `curl -s localhost:PORT/api/settings` | literal |
@@ -318,6 +302,14 @@ Why: measure quality on real articles before trusting or tuning prompts, the cal
   - During: tdd, codebase-design for the store seam, Evals for F7, to-issues and handoff for slices.
   - At the end: golden-spec-create.
   - Avoided: the womm design-doc, epic-breakdown and implement chain.
+- 2026-10-02: **First-principles pass** on the store, the web UI, the operator count and the build order. Findings:
+  - No v1 claim uses mnestic's as-of history or search fusion, and Specter's whole corpus produced about 150 entities and 118 relationships, so SQLite as the truth would drop ISC-5, 50 and 51. The principal kept mnestic (`docs/adr/0001`).
+  - The web UI and one instance per operator hold. Pairing call 1 tests the install path.
+  - The ego graph (ISC-30) rests on no request from the friend; it is the first cut if the estimate slips.
+  - The biggest untested assumption is that the friend will review proposals at all. Pairing call 1 gains a five-minute check of it (PLAN S2).
+- 2026-10-02: **Domain docs split out.** The glossary moved from this ISA to `CONTEXT.md`, which adds Proposal, Candidate, Entity, Event, Relationship and Operator. ADRs 0001 to 0004 in `docs/adr/` record the store, the Rust/Python split, one instance per operator, and Events as Entities. This ISA keeps the dated log.
+- 2026-10-02: **"Event" means only the domain Event.** The worker's JSON Lines are progress messages; ISC-14, 14.1 and 35 were reworded.
+- 2026-10-02: **Issues only for multi-session blocks.** `/to-issues` slices S2, S3, S6 and S8 into `.scratch/` issues at their start, after a one-time `/setup-matt-pocock-skills`. Single-session rows work from their PLAN row and claims. Rewriting PLAN.md's Now section is the session handoff.
 
 ## Learning
 
