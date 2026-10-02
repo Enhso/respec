@@ -338,6 +338,11 @@ Why: measure quality on real articles before trusting or tuning prompts, the cal
   - The worker's HTTP client is httpx, synchronous, with no redirects followed. Its endpoint comes only from the Provider table in `providers.py`.
   - Progress messages are JSON Lines told apart by `kind`: `started`, `done`, `failed`. `failed` carries one of six reasons: `auth`, `quota`, `rate_limit`, `model_unavailable`, `network`, `other`. One fixture per shape lives in `contracts/fixtures/messages/`. This starts ISC-17, which stays open until the extraction messages join it in S3.
   - Default free Models, chosen by live calls: `nvidia/nemotron-3-super-120b-a12b:free` on OpenRouter and `gemini-flash-lite-latest` on Gemini. Choosing a Model stays S11.
+- 2026-10-02: **macOS release bundle (S2 issue 04).**
+  - The bundle mirrors the repo: `respec`, `web/dist/`, and `python/` holding only `pyproject.toml`, `uv.lock` and `src/`, plus `LICENSE` and `README.md`. Run from the bundle root, every cwd-relative default works, including the worker after `uv sync --frozen --no-dev`.
+  - `scripts/bundle.sh` builds it and `scripts/smoke-bundle.sh` checks it. The smoke refuses an archive listing `.env`, keys, corpus or build residue, then requires 200 from `/api/health` and the page.
+  - The release is a job inside `ci.yml`, gated on `v*` tags and needing the four gate jobs, so a tag-push run is still full CI and the ISC-1 and 2 probe stays honest. A broken release job turns that run red, which the probe then reports.
+  - The tag must match the Cargo version. The release is not a prerelease, because the installer reads `releases/latest`, which skips prereleases.
 
 ## Learning
 

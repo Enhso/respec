@@ -10,17 +10,19 @@ Estimates are in sessions. Dates depend on weekly capacity (see the end).
 
 ## Now
 
-- **Next session:** S2, wave 2: issues 02 (live test call) and 04 (macOS release build) can run in parallel. Then 03 and 05, then the pairing call (06).
+- **Next session:** S2, wave 3: issues 03 (test extraction of a long article) and 05 (one-command install) can run in parallel. Then the pairing call (06).
+- **Before 05:** push a `v0.1.0` tag. It runs the release job on the macOS runner, which is still unproven there, and publishes the first release that `install.sh` downloads.
 - **Waiting on:**
   - the friend's OpenRouter and Gemini accounts, needed only by the S2 pairing call. He sets up his keys on his own Mac, so building S2 does not wait on them.
-- **Where S2 stands:** issue 01 is done (ISC-46, 47 and 59 closed).
-  - `respec` serves `web/dist` from disk (`RESPEC_WEB_DIR`) on the same origin as the API, with a stub settings form for the two keys.
-  - Keys are saved to `keys.json` in the config directory (`RESPEC_CONFIG_DIR`, else `~/Library/Application Support/Respec`). The API shows only the last four.
-  - Every request passes the Host check, and every POST needs `Origin: http://127.0.0.1:7377` or `http://localhost:7377`. A missing Origin is rejected, so terminal POSTs must send one.
-  - `src/store.rs` opens mnestic, but `main` opens no store. `respec-worker` only prints its version.
+- **Where S2 stands:** issues 01, 02 and 04 are built (ISC-37, 46, 47 and 59 closed; ISC-17 started).
+  - `respec` serves `web/dist` and a stub settings page: key entry, last four shown, a "Test call" button per Provider. Every POST needs `Origin: http://127.0.0.1:7377` or `http://localhost:7377`.
+  - The test call runs the worker's venv executable (`RESPEC_WORKER`, default `python/.venv/bin/respec-worker`). Only the chosen key is passed, in the worker's environment, and the worker reports JSON Lines matching `contracts/fixtures/messages/`.
+  - Default free Models: `nvidia/nemotron-3-super-120b-a12b:free` and `gemini-flash-lite-latest`. The client's 60 s timeout suits only the test call; 03 needs a far longer one.
+  - `scripts/bundle.sh` and `scripts/smoke-bundle.sh` build and check the release bundle. The tag-gated `release` job in `ci.yml` publishes it, but has not yet run on macOS.
+  - `src/store.rs` opens mnestic, but `main` opens no store.
 - **S2 issues:** six in `.scratch/s2-tracer-to-his-mac/issues/`, 01 to 05 for agents and 06 the pairing call.
-- **Dev keys:** live model calls during development read your own OpenRouter and Gemini keys from the local, gitignored `.env`, in place since 2026-10-02.
-- **Gates:** CI runs four jobs on every push: rust, python, web and isolation. When the web app gains tests, add them to `scripts/test-isolation.sh`.
+- **Dev keys:** live model calls during development read your own OpenRouter and Gemini keys from the local, gitignored `.env`. From the terminal: `uv run --frozen --directory python --env-file ../.env respec-worker test-call --provider gemini`.
+- **Gates:** CI runs four jobs on every push: rust, python, web and isolation, plus `release` on `v*` tags. When the web app gains tests, add them to `scripts/test-isolation.sh`.
 
 ## Rules
 
