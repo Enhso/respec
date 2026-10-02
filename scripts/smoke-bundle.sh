@@ -4,7 +4,8 @@
 # Usage: scripts/smoke-bundle.sh <tarball>
 #
 # 1. Refuse an archive that lists a key, .env, corpus text or build residue.
-# 2. Unpack it, `uv sync --frozen` its worker project, and run the worker.
+# 2. Unpack it, `uv sync --frozen --no-dev` its worker project (as the
+#    installer will), and run the worker.
 # 3. Start ./respec from the bundle root with every path left at its default
 #    (only RESPEC_CONFIG_DIR is set, to a temp dir) and require 200 from
 #    /api/health and from the page.
@@ -52,7 +53,7 @@ bundle="${tops[0]%/}"
 name="$(basename "$bundle")"
 [[ -x "$bundle/respec" ]] || fail "$name/respec is missing or not executable"
 
-uv sync --frozen --directory "$bundle/python"
+uv sync --frozen --no-dev --directory "$bundle/python"
 "$bundle/python/.venv/bin/respec-worker" --version
 
 # 3. Start the binary, with RESPEC_WEB_DIR and RESPEC_WORKER unset so the
