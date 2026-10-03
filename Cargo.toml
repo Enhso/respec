@@ -1,6 +1,6 @@
 [package]
 name = "respec"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 description = "Local-first OSINT graph: articles in, a sourced Knowledge graph out"
 publish = false
