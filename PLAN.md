@@ -10,8 +10,8 @@ Estimates are in sessions. Dates depend on weekly capacity (see the end).
 
 ## Now
 
-- **Next session:** prove issue 05 on the macOS runner, then the pairing call (06). Every S2 agent issue (01 to 05) is built and merged.
-- **The macOS proof:** bump the Cargo version to 0.2.0 and push a `v0.2.0` tag. The `release` job runs `scripts/install-check.sh` before it publishes, so a failing install publishes nothing. `v0.1.0` predates `respec setup`, so the friend needs `v0.2.0` anyway. A `workflow_dispatch` run proves the same without publishing.
+- **Next session:** pairing call 1 (`06-pairing-call-1.md`), then S3. Every S2 agent issue (01 to 05) is done, and `v0.2.0` is the release the friend installs: its tag run proved `install.sh` on the macOS runner before publishing.
+- **The install command:** `curl -fsSL https://raw.githubusercontent.com/Enhso/respec/main/install.sh | bash`, run in Terminal and never downloaded through a browser.
 - **Waiting on:** the friend's OpenRouter and Gemini accounts, for pairing call 1. Its checklist, including the checks only his Mac can prove, is in `06-pairing-call-1.md`.
 - **Where S2 stands:** ISC-37, 46, 47 and 59 closed; ISC-17 started.
   - The stub page holds key entry with last four shown, a test call per Provider, and a test extraction that polls progress and lists entity Proposals with sentences.
