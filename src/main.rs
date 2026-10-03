@@ -1,24 +1,16 @@
-//! Binary entry point: starts the Respec server on loopback.
+//! Binary entry point: `respec` starts the server on loopback, and
+//! `respec setup` installs the login agent.
 
 use std::path::PathBuf;
+use std::process::ExitCode;
 
 use anyhow::Context;
 use tracing_subscriber::EnvFilter;
 
 use respec::keys::KeyStore;
 use respec::server;
+use respec::setup;
 use respec::worker::Worker;
-
-/// The directory holding keys: `RESPEC_CONFIG_DIR` if set, else `Respec`
-/// inside the platform config directory (`~/Library/Application Support` on
-/// macOS).
-fn config_dir() -> anyhow::Result<PathBuf> {
-    if let Some(dir) = std::env::var_os("RESPEC_CONFIG_DIR") {
-        return Ok(dir.into());
-    }
-    let base = dirs::config_dir().context("no platform config directory; set RESPEC_CONFIG_DIR")?;
-    Ok(base.join("Respec"))
-}
 
 /// The built web UI: `RESPEC_WEB_DIR` if set, else `web/dist`.
 fn web_dir() -> PathBuf {
@@ -35,13 +27,35 @@ fn worker_path() -> PathBuf {
     )
 }
 
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {
+fn main() -> anyhow::Result<ExitCode> {
+    let args: Vec<_> = std::env::args_os().skip(1).collect();
+    match args.as_slice() {
+        [] => {
+            tokio::runtime::Runtime::new()
+                .context("starting the async runtime")?
+                .block_on(serve())?;
+            Ok(ExitCode::SUCCESS)
+        }
+        [arg] if arg == "setup" => Ok(match setup::run() {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(err) => {
+                eprintln!("respec setup: {err:#}");
+                ExitCode::FAILURE
+            }
+        }),
+        _ => {
+            eprintln!("usage: respec [setup]");
+            Ok(ExitCode::from(2))
+        }
+    }
+}
+
+async fn serve() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()))
         .init();
 
-    let config_dir = config_dir()?;
+    let config_dir = respec::config_dir()?;
     let web_dir = web_dir();
     let worker_path = worker_path();
     tracing::info!(
