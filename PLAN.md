@@ -10,19 +10,16 @@ Estimates are in sessions. Dates depend on weekly capacity (see the end).
 
 ## Now
 
-- **Next session:** S2, wave 3: issues 03 (test extraction of a long article) and 05 (one-command install) can run in parallel. Then the pairing call (06).
-- **Before 05:** push a `v0.1.0` tag. It runs the release job on the macOS runner, which is still unproven there, and publishes the first release that `install.sh` downloads.
-- **Waiting on:**
-  - the friend's OpenRouter and Gemini accounts, needed only by the S2 pairing call. He sets up his keys on his own Mac, so building S2 does not wait on them.
-- **Where S2 stands:** issues 01, 02 and 04 are built (ISC-37, 46, 47 and 59 closed; ISC-17 started).
-  - `respec` serves `web/dist` and a stub settings page: key entry, last four shown, a "Test call" button per Provider. Every POST needs `Origin: http://127.0.0.1:7377` or `http://localhost:7377`.
-  - The test call runs the worker's venv executable (`RESPEC_WORKER`, default `python/.venv/bin/respec-worker`). Only the chosen key is passed, in the worker's environment, and the worker reports JSON Lines matching `contracts/fixtures/messages/`.
-  - Default free Models: `nvidia/nemotron-3-super-120b-a12b:free` and `gemini-flash-lite-latest`. The client's 60 s timeout suits only the test call; 03 needs a far longer one.
-  - `scripts/bundle.sh` and `scripts/smoke-bundle.sh` build and check the release bundle. The tag-gated `release` job in `ci.yml` publishes it, but has not yet run on macOS.
+- **Next session:** prove issue 05 on the macOS runner, then the pairing call (06). Every S2 agent issue (01 to 05) is built and merged.
+- **The macOS proof:** bump the Cargo version to 0.2.0 and push a `v0.2.0` tag. The `release` job runs `scripts/install-check.sh` before it publishes, so a failing install publishes nothing. `v0.1.0` predates `respec setup`, so the friend needs `v0.2.0` anyway. A `workflow_dispatch` run proves the same without publishing.
+- **Waiting on:** the friend's OpenRouter and Gemini accounts, for pairing call 1. Its checklist, including the checks only his Mac can prove, is in `06-pairing-call-1.md`.
+- **Where S2 stands:** ISC-37, 46, 47 and 59 closed; ISC-17 started.
+  - The stub page holds key entry with last four shown, a test call per Provider, and a test extraction that polls progress and lists entity Proposals with sentences.
+  - On the 28.5k-character Insider article, Gemini Flash-Lite returns 30 to 67 entities in 12 to 21 s, and OpenRouter's nemotron 20 in 49 s.
+  - `install.sh` and `respec setup` install to `~/Library/Application Support/Respec/app` with the login agent `io.github.enhso.respec`.
   - `src/store.rs` opens mnestic, but `main` opens no store.
-- **S2 issues:** six in `.scratch/s2-tracer-to-his-mac/issues/`, 01 to 05 for agents and 06 the pairing call.
-- **Dev keys:** live model calls during development read your own OpenRouter and Gemini keys from the local, gitignored `.env`. From the terminal: `uv run --frozen --directory python --env-file ../.env respec-worker test-call --provider gemini`.
-- **Gates:** CI runs four jobs on every push: rust, python, web and isolation, plus `release` on `v*` tags. When the web app gains tests, add them to `scripts/test-isolation.sh`.
+- **Dev keys:** the local, gitignored `.env`. From the terminal: `uv run --frozen --directory python --env-file ../.env respec-worker test-extraction --provider gemini --url <url>`.
+- **Gates:** CI runs rust, python, web and isolation on every push. On `v*` tags and manual runs it also runs `release` on macOS: bundle, smoke, install check, and publish on tags only. When the web app gains tests, add them to `scripts/test-isolation.sh`.
 
 ## Rules
 

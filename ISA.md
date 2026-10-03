@@ -350,6 +350,11 @@ Why: measure quality on real articles before trusting or tuning prompts, the cal
   - The server keeps one test extraction in memory (409 while one runs) and the page polls `GET /api/test-extraction`. This is a stand-in until S6's job runner.
   - Unparseable worker lines are no longer logged in part, because they could now hold article text. The worker writes UTF-8 bytes to stdout: a text write crashed on Chinese names when stdout was ASCII.
   - Ported: `fetch.py`, the four HTML fixtures (renamed, every name invented) and both prompts, now deleted from `carryover/`. `client.py` and `extraction_schemas.py` stay for their Pass 2 and 3 parts.
+- 2026-10-03: **One-command install with a login agent (S2 issue 05).**
+  - `install.sh` checks for an Apple Silicon Mac. It installs uv into `~/.local/bin` if uv is missing, without touching shell profiles. It downloads the `releases/latest` arm64 asset with curl, so no quarantine attribute is set, and replaces `~/Library/Application Support/Respec/app` wholesale. `keys.json` beside `app/` is never touched. Then it runs `respec setup`.
+  - `respec setup` runs `uv sync --frozen --no-dev` and writes the LaunchAgent `io.github.enhso.respec`. It then boots out any old job and bootstraps the new one in `gui/<uid>`. The plist uses absolute paths only and sets `RESPEC_CONFIG_DIR`, `RESPEC_WEB_DIR` and `RESPEC_WORKER` explicitly, with `RunAtLoad`, `KeepAlive` and logs in `~/Library/Logs/Respec/`.
+  - `scripts/install-check.sh` runs in the `release` job before publishing, under a fresh HOME. It covers uv missing from PATH, two installs, a key kept across them, exactly one plist, and a killed process restarted by launchd. `workflow_dispatch` runs the whole workflow, publish excepted.
+  - `v0.1.0` predates `respec setup`, so the friend's install needs a newer release.
 
 ## Learning
 
