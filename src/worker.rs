@@ -15,8 +15,9 @@ use crate::keys::{ApiKey, Provider};
 /// How long one test call may take, start to exit.
 const TEST_CALL_TIMEOUT: Duration = Duration::from_secs(120);
 
-/// How many characters of an unparseable worker line a log entry may hold.
-const LOGGED_LINE_CHARS: usize = 200;
+/// How long one test extraction may take, start to exit. It covers an article
+/// fetch and a free Model that can take minutes, and waits on rate limits.
+const TEST_EXTRACTION_TIMEOUT: Duration = Duration::from_secs(20 * 60);
 
 /// The environment variable the worker reads each Provider's key from.
 const KEY_VARS: [(Provider, &str); 2] = [
@@ -26,7 +27,8 @@ const KEY_VARS: [(Provider, &str); 2] = [
 
 /// One progress message: a JSON line on the worker's stdout, told apart by
 /// its `kind`. The shapes are the contract in `contracts/fixtures/messages/`,
-/// which the Python worker's own models mirror.
+/// which the Python worker's own models mirror. `Done`, `Entities` and
+/// `Failed` end a run; the others report on the way.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum WorkerMessage {
@@ -37,7 +39,16 @@ pub enum WorkerMessage {
         /// The Model being called.
         model: String,
     },
-    /// The call succeeded.
+    /// A test extraction is working.
+    Progress {
+        /// The Provider being called.
+        provider: Provider,
+        /// What the worker is doing.
+        stage: Stage,
+        /// One plain sentence saying so.
+        detail: String,
+    },
+    /// The test call succeeded.
     Done {
         /// The Provider that answered.
         provider: Provider,
@@ -46,7 +57,18 @@ pub enum WorkerMessage {
         /// The Model's reply text.
         reply: String,
     },
-    /// The call failed.
+    /// The test extraction succeeded.
+    Entities {
+        /// The Provider that answered.
+        provider: Provider,
+        /// The Model that answered.
+        model: String,
+        /// The Document the entity Proposals come from.
+        document: DocumentSummary,
+        /// The entity Proposals, in the Model's order.
+        entities: Vec<ProposedEntity>,
+    },
+    /// The run failed.
     Failed {
         /// The Provider that was called.
         provider: Provider,
@@ -57,7 +79,51 @@ pub enum WorkerMessage {
     },
 }
 
-/// Why a call failed, in terms the operator can act on.
+impl WorkerMessage {
+    /// Whether this message ends a run: the last one of these is its outcome.
+    fn is_final(&self) -> bool {
+        matches!(
+            self,
+            Self::Done { .. } | Self::Entities { .. } | Self::Failed { .. }
+        )
+    }
+}
+
+/// What a running test extraction is doing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Stage {
+    /// Fetching the article.
+    Fetching,
+    /// Waiting for the Model's reply.
+    CallingModel,
+    /// Waiting out a per-minute rate limit before trying again.
+    WaitingRateLimit,
+}
+
+/// The Document a test extraction read.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DocumentSummary {
+    /// Where the article was found, after redirects.
+    pub url: String,
+    /// The article's title, when the page has one.
+    pub title: Option<String>,
+    /// The length of the Document text, in characters.
+    pub chars: u64,
+}
+
+/// One entity Proposal as the worker reports it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProposedEntity {
+    /// The kind of entity: Person, Organization and so on.
+    pub label: String,
+    /// The entity's name.
+    pub name: String,
+    /// The Proposal's first supporting sentence.
+    pub sentence: String,
+}
+
+/// Why a run failed, in terms the operator can act on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum FailureReason {
@@ -71,35 +137,16 @@ pub enum FailureReason {
     ModelUnavailable,
     /// The Provider could not be reached.
     Network,
+    /// The article could not be fetched, or had no body.
+    Fetch,
+    /// The Model's reply was not valid Pass 1 JSON.
+    BadOutput,
     /// Anything else.
     Other,
 }
 
-/// How a worker run ended, as its last `done` or `failed` message says.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Finished {
-    /// The call succeeded.
-    Done {
-        /// The Provider that answered.
-        provider: Provider,
-        /// The Model that answered.
-        model: String,
-        /// The Model's reply text.
-        reply: String,
-    },
-    /// The call failed.
-    Failed {
-        /// The Provider that was called.
-        provider: Provider,
-        /// Why it failed.
-        reason: FailureReason,
-        /// One plain sentence with a next step.
-        message: String,
-    },
-}
-
-/// Why a worker run produced no `done` or `failed` message. None of these
-/// carry a key, the worker's environment or its output.
+/// Why a worker run produced no final message. None of these carry a key,
+/// the worker's environment or its output.
 #[derive(Debug, thiserror::Error)]
 pub enum WorkerError {
     /// The worker executable could not be started.
@@ -116,7 +163,8 @@ pub enum WorkerError {
     /// The worker did not exit in time and was killed.
     #[error("the worker did not finish within {0:?}")]
     TimedOut(Duration),
-    /// The worker exited without printing a `done` or `failed` message.
+    /// The worker exited without printing a `done`, `entities` or `failed`
+    /// message.
     #[error("the worker exited ({status}) without a final message")]
     NoFinalMessage {
         /// How the worker exited.
@@ -128,36 +176,73 @@ pub enum WorkerError {
 #[derive(Debug, Clone)]
 pub struct Worker {
     path: PathBuf,
-    timeout: Duration,
+    timeout: Option<Duration>,
 }
 
 impl Worker {
-    /// A worker at `path`, with the standard 120 s limit.
+    /// A worker at `path`. A test call may take 120 s and a test extraction
+    /// 20 minutes.
     pub fn new(path: impl Into<PathBuf>) -> Self {
         Self {
             path: path.into(),
-            timeout: TEST_CALL_TIMEOUT,
+            timeout: None,
         }
     }
 
-    /// The same worker with a different time limit.
+    /// The same worker with one time limit for every kind of run.
     #[must_use]
     pub fn with_timeout(mut self, timeout: Duration) -> Self {
-        self.timeout = timeout;
+        self.timeout = Some(timeout);
         self
     }
 
-    /// Runs `test-call` for `provider`. The key reaches the worker only
-    /// through its environment: both key variables are cleared first, so a
-    /// key set in the server's own environment is not passed on. The worker
-    /// is killed if this future is dropped or the time limit passes.
+    /// Runs `test-call` for `provider` and returns its final message.
     pub async fn test_call(
         &self,
         provider: Provider,
         key: &ApiKey,
-    ) -> Result<Finished, WorkerError> {
+    ) -> Result<WorkerMessage, WorkerError> {
+        let args = ["test-call", "--provider", provider.as_str()];
+        let timeout = self.timeout.unwrap_or(TEST_CALL_TIMEOUT);
+        self.run(provider, key, &args, timeout, |_| {}).await
+    }
+
+    /// Runs `test-extraction` over the article at `url` and returns its final
+    /// message. `on_message` sees every message as it arrives, so progress can
+    /// be shown while the run goes on.
+    pub async fn test_extraction(
+        &self,
+        provider: Provider,
+        key: &ApiKey,
+        url: &str,
+        on_message: impl FnMut(&WorkerMessage),
+    ) -> Result<WorkerMessage, WorkerError> {
+        let args = [
+            "test-extraction",
+            "--provider",
+            provider.as_str(),
+            "--url",
+            url,
+        ];
+        let timeout = self.timeout.unwrap_or(TEST_EXTRACTION_TIMEOUT);
+        self.run(provider, key, &args, timeout, on_message).await
+    }
+
+    /// Starts the worker with `args` and reads its messages until it exits,
+    /// returning the last final one. The key reaches the worker only through
+    /// its environment: both key variables are cleared first, so a key set in
+    /// the server's own environment is not passed on. The worker is killed if
+    /// this future is dropped or `timeout` passes.
+    async fn run(
+        &self,
+        provider: Provider,
+        key: &ApiKey,
+        args: &[&str],
+        timeout: Duration,
+        mut on_message: impl FnMut(&WorkerMessage),
+    ) -> Result<WorkerMessage, WorkerError> {
         let mut command = Command::new(&self.path);
-        command.args(["test-call", "--provider", provider.as_str()]);
+        command.args(args);
         for (_, var) in KEY_VARS {
             command.env_remove(var);
         }
@@ -175,62 +260,52 @@ impl Worker {
                 source,
             })?;
         let stdout = child.stdout.take().expect("stdout is piped");
-        tokio::time::timeout(self.timeout, read_messages(&mut child, stdout))
+        tokio::time::timeout(timeout, read_messages(&mut child, stdout, &mut on_message))
             .await
-            .map_err(|_| WorkerError::TimedOut(self.timeout))?
+            .map_err(|_| WorkerError::TimedOut(timeout))?
     }
 }
 
-/// Reads the worker's stdout to its end, keeping the last `done` or `failed`
-/// message, then waits for it to exit. A line that is not a message is logged
-/// (cut short) and skipped.
-async fn read_messages(child: &mut Child, stdout: ChildStdout) -> Result<Finished, WorkerError> {
+/// Reads the worker's stdout to its end, handing each message to
+/// `on_message` and keeping the last final one, then waits for the worker to
+/// exit. A line that is not a message is skipped; the log gets the parse
+/// error and the line's length, never its text, which may be article content.
+async fn read_messages(
+    child: &mut Child,
+    stdout: ChildStdout,
+    on_message: &mut impl FnMut(&WorkerMessage),
+) -> Result<WorkerMessage, WorkerError> {
     let mut lines = BufReader::new(stdout).lines();
-    let mut finished = None;
+    let mut outcome = None;
     while let Some(line) = lines.next_line().await.map_err(WorkerError::Read)? {
         match serde_json::from_str::<WorkerMessage>(&line) {
-            Ok(WorkerMessage::Started { .. }) => {}
-            Ok(WorkerMessage::Done {
-                provider,
-                model,
-                reply,
-            }) => {
-                finished = Some(Finished::Done {
-                    provider,
-                    model,
-                    reply,
-                });
-            }
-            Ok(WorkerMessage::Failed {
-                provider,
-                reason,
-                message,
-            }) => {
-                finished = Some(Finished::Failed {
-                    provider,
-                    reason,
-                    message,
-                });
+            Ok(message) => {
+                on_message(&message);
+                if message.is_final() {
+                    outcome = Some(message);
+                }
             }
             Err(err) => {
-                let line: String = line.chars().take(LOGGED_LINE_CHARS).collect();
-                tracing::warn!(%err, ?line, "worker printed a line that is not a message");
+                let chars = line.chars().count();
+                tracing::warn!(%err, chars, "worker printed a line that is not a message");
             }
         }
     }
     let status = child.wait().await.map_err(WorkerError::Read)?;
-    finished.ok_or(WorkerError::NoFinalMessage { status })
+    outcome.ok_or(WorkerError::NoFinalMessage { status })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::BTreeSet;
     use std::fs;
     use std::path::Path;
 
     /// ISC-17, server side: every fixture in `contracts/fixtures/messages/`
     /// parses as a [`WorkerMessage`], and writing it back gives the same JSON,
-    /// so a field the enum lacks or invents shows up here.
+    /// so a field the enum lacks or invents shows up here. Every message
+    /// kind, failure reason and progress stage has a fixture.
     #[test]
     fn contract_fixtures_parse() {
         let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("contracts/fixtures/messages");
@@ -242,9 +317,21 @@ mod tests {
         files.sort();
         assert!(!files.is_empty(), "no fixtures in {}", dir.display());
 
+        let mut kinds = BTreeSet::new();
+        let mut reasons = BTreeSet::new();
+        let mut stages = BTreeSet::new();
         for path in files {
             let text = fs::read_to_string(&path).expect("fixture is readable");
             let raw: serde_json::Value = serde_json::from_str(&text).expect("fixture is JSON");
+            for (set, field) in [
+                (&mut kinds, "kind"),
+                (&mut reasons, "reason"),
+                (&mut stages, "stage"),
+            ] {
+                if let Some(value) = raw[field].as_str() {
+                    set.insert(value.to_owned());
+                }
+            }
             let message: WorkerMessage = serde_json::from_str(&text)
                 .unwrap_or_else(|err| panic!("{} is not a WorkerMessage: {err}", path.display()));
             assert_eq!(
@@ -254,5 +341,30 @@ mod tests {
                 path.display()
             );
         }
+
+        let names = |names: &[&str]| -> BTreeSet<String> {
+            names.iter().map(|&name| name.to_owned()).collect()
+        };
+        assert_eq!(
+            kinds,
+            names(&["started", "progress", "done", "entities", "failed"])
+        );
+        assert_eq!(
+            reasons,
+            names(&[
+                "auth",
+                "quota",
+                "rate_limit",
+                "model_unavailable",
+                "network",
+                "fetch",
+                "bad_output",
+                "other"
+            ])
+        );
+        assert_eq!(
+            stages,
+            names(&["fetching", "calling_model", "waiting_rate_limit"])
+        );
     }
 }

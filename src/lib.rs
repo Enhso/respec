@@ -5,4 +5,5 @@
 pub mod keys;
 pub mod server;
 pub mod store;
+pub mod test_extraction;
 pub mod worker;

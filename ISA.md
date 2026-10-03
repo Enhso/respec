@@ -5,7 +5,7 @@ project: respec
 phase: marking
 progress: 10/66
 started: 2026-10-01T19:12:36Z
-updated: 2026-10-02T20:30:00Z
+updated: 2026-10-03T00:00:00Z
 principal_stated_goal: "we'll build a new fork of it keeping only essential and reusable items (if any) and start from scratch"
 principal_stated_goal_source: conversation
 principal_stated_goal_signal: 4
@@ -343,6 +343,13 @@ Why: measure quality on real articles before trusting or tuning prompts, the cal
   - `scripts/bundle.sh` builds it and `scripts/smoke-bundle.sh` checks it. The smoke refuses an archive listing `.env`, keys, corpus or build residue, then requires 200 from `/api/health` and the page.
   - The release is a job inside `ci.yml`, gated on `v*` tags and needing the four gate jobs, so a tag-push run is still full CI and the ISC-1 and 2 probe stays honest. A broken release job turns that run red, which the probe then reports.
   - The tag must match the Cargo version. The release is not a prerelease, because the installer reads `releases/latest`, which skips prereleases.
+- 2026-10-03: **Test extraction of a long article (S2 issue 03).**
+  - `respec-worker test-extraction` fetches with Specter's ported fetch (httpx, trafilatura, bs4, made synchronous), then makes one Pass 1 call with Specter's system and Pass 1 prompts copied as is. S3 reshapes them.
+  - The output budget is a fixed 16,384 tokens (both default Models allow far more), with a 600 s read timeout. Per-minute 429s are retried up to 6 attempts, honouring `Retry-After` clamped to 1 to 120 s, with a `waiting_rate_limit` progress message before each wait.
+  - New progress message kinds: `progress` (stages `fetching`, `calling_model` and `waiting_rate_limit`) and `entities`. New failure reasons: `fetch` and `bad_output`. Both contract tests fail unless every kind, stage and reason has a fixture.
+  - The server keeps one test extraction in memory (409 while one runs) and the page polls `GET /api/test-extraction`. This is a stand-in until S6's job runner.
+  - Unparseable worker lines are no longer logged in part, because they could now hold article text. The worker writes UTF-8 bytes to stdout: a text write crashed on Chinese names when stdout was ASCII.
+  - Ported: `fetch.py`, the four HTML fixtures (renamed, every name invented) and both prompts, now deleted from `carryover/`. `client.py` and `extraction_schemas.py` stay for their Pass 2 and 3 parts.
 
 ## Learning
 
@@ -360,6 +367,10 @@ Why: measure quality on real articles before trusting or tuning prompts, the cal
     - On Gemini, pinned Models such as `gemini-2.5-flash-lite` return 404 "no longer available to new users". The full Flash Models took 24 s or more on a one-word prompt, against under 1 s for Flash-Lite.
   - learned: free-Model availability is volatile and differs per account, so a hardcoded default will rot. The test call's 60 s client timeout suits a one-word reply only; S2 issue 03's real-sized pass needs a far longer read timeout (the 2026-10-01 probe took 213 s).
   - criterion now: ISC-52 (fallback across Models), ISC-34 and 35 (Model choice in settings).
+- conjectured: one extraction run shows what a Model will propose for an article.
+  - refuted by: four Pass 1 runs of `gemini-flash-lite-latest` on the same 28.5k-character Insider article on 2026-10-02 and 03, which returned 61, 67, 30 and 56 entities. Each run took 12 to 21 s, against 213 s for the 2026-10-01 probe on an OpenRouter free Model. OpenRouter's nemotron took 49 s and proposed 20.
+  - learned: run-to-run variance is large, so recall needs several samples per article, and the friend's five-minute check sees a single draw.
+  - criterion now: ISC-43, 43.1 and 62 already score 3 samples; keep that in S4.
 
 ## Verification
 

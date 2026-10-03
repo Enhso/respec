@@ -9,10 +9,14 @@ Worker progress messages: JSON Lines on the worker's stdout, one object per line
 | `kind` | Fields | Meaning |
 |--------|--------|---------|
 | `started` | `provider`, `model` | The worker is about to call the Model. |
-| `done` | `provider`, `model`, `reply` | The call succeeded. |
-| `failed` | `provider`, `reason`, `message` | The call failed. `message` is one plain sentence with a next step. |
+| `progress` | `provider`, `stage`, `detail` | A test extraction is working. `detail` is one plain sentence. |
+| `done` | `provider`, `model`, `reply` | The test call succeeded. |
+| `entities` | `provider`, `model`, `document`, `entities` | The test extraction succeeded. `document` is `{url, title, chars}`, with `title` null when the page has none. Each entity is `{label, name, sentence}`, where `sentence` is the Proposal's first supporting sentence. |
+| `failed` | `provider`, `reason`, `message` | The run failed. `message` is one plain sentence with a next step. |
 
 - `provider` is `openrouter` or `gemini`, the same strings as `src/keys.rs`.
-- `reason` is one of `auth`, `quota`, `rate_limit`, `model_unavailable`, `network`, `other`. There is a `failed_*.json` fixture for each.
+- `stage` is one of `fetching`, `calling_model`, `waiting_rate_limit`. There is a `progress_*.json` fixture for each.
+- `reason` is one of `auth`, `quota`, `rate_limit`, `model_unavailable`, `network`, `fetch`, `bad_output`, `other`. There is a `failed_*.json` fixture for each. `fetch` means the article could not be fetched or had no body; `bad_output` means the Model's reply was not valid Pass 1 JSON.
+- `done` and `entities` end a run successfully and `failed` ends it unsuccessfully. The server keeps the last of these as the outcome.
 
 The Rust side is `WorkerMessage` in `src/worker.rs`. The Python side is `respec_worker.messages`. Probe: `cargo test contract && uv run pytest -k contract`.
