@@ -2,10 +2,10 @@
 task: "Respec: rebuild Specter local-first and prove the loop"
 slug: 20261001-respec
 project: respec
-phase: marking
+phase: climbing
 progress: 10/66
 started: 2026-10-01T19:12:36Z
-updated: 2026-10-03T00:00:00Z
+updated: 2026-10-07T00:00:00Z
 principal_stated_goal: "we'll build a new fork of it keeping only essential and reusable items (if any) and start from scratch"
 principal_stated_goal_source: conversation
 principal_stated_goal_signal: 4
@@ -355,6 +355,9 @@ Why: measure quality on real articles before trusting or tuning prompts, the cal
   - `respec setup` runs `uv sync --frozen --no-dev` and writes the LaunchAgent `io.github.enhso.respec`. It then boots out any old job and bootstraps the new one in `gui/<uid>`. The plist uses absolute paths only and sets `RESPEC_CONFIG_DIR`, `RESPEC_WEB_DIR` and `RESPEC_WORKER` explicitly, with `RunAtLoad`, `KeepAlive` and logs in `~/Library/Logs/Respec/`.
   - `scripts/install-check.sh` runs in the `release` job before publishing, under a fresh HOME. It covers uv missing from PATH, two installs, a key kept across them, exactly one plist, and a killed process restarted by launchd. `workflow_dispatch` runs the whole workflow, publish excepted.
   - `v0.1.0` predates `respec setup`, so the friend's install needs a newer release. `v0.2.0` is that release: its tag run `37157808655` passed the install check on the macOS runner before publishing.
+- 2026-10-07: **S3 sliced** into six `.scratch/` issues: two-pass extraction with Events, verbatim sentences with offsets, output budget and truncation, no cache directives to Gemini, the daily-quota pause, and fallback with plain failure messages. The last two wait for pairing call 1, because the friend's accounts may change how they should work.
+- 2026-10-07: **URL canonicalisation moves to S6.** No claim needs it, and Documents are created in Rust. S6 decides whether duplicate Documents earn a claim; if not, Specter's `canonicalize.py` is dropped with a row here.
+- 2026-10-07: **Labels are drafted by an agent and checked by the principal** (S4 and S9). He would rather verify than generate, since he lacks the domain expertise to label well. To limit anchoring on the draft, the drafter is a Claude model and never one of the free Models under test, and his check asks what is missing before what is wrong.
 
 ## Learning
 
