@@ -1,1 +1,1 @@
-{"kind": "progress", "provider": "gemini", "stage": "calling_model", "detail": "Calling example-model on 28,332 characters"}
+{"kind": "progress", "provider": "gemini", "stage": "calling_model", "detail": "Pass 1 of 2: calling example-model on 28,332 characters", "pass_number": 1, "pass_count": 2}

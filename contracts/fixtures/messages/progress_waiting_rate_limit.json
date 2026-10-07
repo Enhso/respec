@@ -1,1 +1,1 @@
-{"kind": "progress", "provider": "openrouter", "stage": "waiting_rate_limit", "detail": "Rate limited; retrying in 20 s (attempt 2 of 6)"}
+{"kind": "progress", "provider": "openrouter", "stage": "waiting_rate_limit", "detail": "Rate limited; retrying in 20 s (attempt 2 of 6)", "pass_number": 2, "pass_count": 2}

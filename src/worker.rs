@@ -27,8 +27,10 @@ const KEY_VARS: [(Provider, &str); 2] = [
 
 /// One progress message: a JSON line on the worker's stdout, told apart by
 /// its `kind`. The shapes are the contract in `contracts/fixtures/messages/`,
-/// which the Python worker's own models mirror. `Done`, `Entities` and
-/// `Failed` end a run; the others report on the way.
+/// which the Python worker's own models mirror. `Done`, `Entities`,
+/// `Relationships` and `Failed` end a run; the others report on the way. An
+/// `extract` run sends `Entities` after Pass 1 and ends with `Relationships`,
+/// so the last of them is the outcome.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum WorkerMessage {
@@ -39,7 +41,7 @@ pub enum WorkerMessage {
         /// The Model being called.
         model: String,
     },
-    /// A test extraction is working.
+    /// An extraction is working.
     Progress {
         /// The Provider being called.
         provider: Provider,
@@ -47,6 +49,11 @@ pub enum WorkerMessage {
         stage: Stage,
         /// One plain sentence saying so.
         detail: String,
+        /// Which pass of an `extract` run this is, counting from 1. Null while
+        /// fetching and in a test extraction.
+        pass_number: Option<u32>,
+        /// How many passes the run has. Null when `pass_number` is.
+        pass_count: Option<u32>,
     },
     /// The test call succeeded.
     Done {
@@ -57,7 +64,8 @@ pub enum WorkerMessage {
         /// The Model's reply text.
         reply: String,
     },
-    /// The test extraction succeeded.
+    /// The entity Proposals of a test extraction, which ends it; in an
+    /// `extract` run, the ones Pass 1 made.
     Entities {
         /// The Provider that answered.
         provider: Provider,
@@ -67,6 +75,22 @@ pub enum WorkerMessage {
         document: DocumentSummary,
         /// The entity Proposals, in the Model's order.
         entities: Vec<ProposedEntity>,
+        /// How many items of the Model's reply were left out for being
+        /// malformed.
+        dropped: u64,
+    },
+    /// An `extract` run succeeded.
+    Relationships {
+        /// The Provider that answered.
+        provider: Provider,
+        /// The Model that answered.
+        model: String,
+        /// The relationship Proposals, in the Model's order.
+        relationships: Vec<ProposedRelationship>,
+        /// How many items of the Model's reply were left out: malformed ones,
+        /// ones naming an entity id that Pass 1 never gave, and participant
+        /// links that do not go from an entity to an Event.
+        dropped: u64,
     },
     /// The run failed.
     Failed {
@@ -84,12 +108,15 @@ impl WorkerMessage {
     fn is_final(&self) -> bool {
         matches!(
             self,
-            Self::Done { .. } | Self::Entities { .. } | Self::Failed { .. }
+            Self::Done { .. }
+                | Self::Entities { .. }
+                | Self::Relationships { .. }
+                | Self::Failed { .. }
         )
     }
 }
 
-/// What a running test extraction is doing.
+/// What a running extraction is doing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Stage {
@@ -101,11 +128,12 @@ pub enum Stage {
     WaitingRateLimit,
 }
 
-/// The Document a test extraction read.
+/// The Document an extraction read.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DocumentSummary {
-    /// Where the article was found, after redirects.
-    pub url: String,
+    /// Where the article was found, after redirects. Null for Document text
+    /// read from a file.
+    pub url: Option<String>,
     /// The article's title, when the page has one.
     pub title: Option<String>,
     /// The length of the Document text, in characters.
@@ -115,10 +143,42 @@ pub struct DocumentSummary {
 /// One entity Proposal as the worker reports it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProposedEntity {
-    /// The kind of entity: Person, Organization and so on.
+    /// The short id the worker gave it (`e1`, `e2`, ...), which relationship
+    /// Proposals refer to it by.
+    pub id: String,
+    /// The kind of entity: Person, Organization, Event and so on.
     pub label: String,
     /// The entity's name.
     pub name: String,
+    /// The Proposal's first supporting sentence.
+    pub sentence: String,
+    /// An Event's date, as ISO 8601 that may stop at the year or the month;
+    /// its form is its precision. Null for every other kind, and for an Event
+    /// the article does not date.
+    pub date: Option<String>,
+    /// Where an Event happened, as the article words it.
+    pub place: Option<String>,
+}
+
+/// One relationship Proposal as the worker reports it: a typed link between
+/// two entity Proposals, named by their ids. For a participant
+/// (`PARTICIPATED_IN`) `to_id` is the Event.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProposedRelationship {
+    /// The kind of link: `WORKS_FOR`, `PARTICIPATED_IN` and so on.
+    #[serde(rename = "type")]
+    pub kind: String,
+    /// The id of the entity the link starts at.
+    pub from_id: String,
+    /// The id of the entity the link ends at.
+    pub to_id: String,
+    /// When the link began, as ISO 8601 that may stop at the year or the month.
+    pub date_from: Option<String>,
+    /// When the link ended, in the same form.
+    pub date_to: Option<String>,
+    /// How exactly the dates are known: exact, day, month, year, range or
+    /// unknown.
+    pub date_precision: String,
     /// The Proposal's first supporting sentence.
     pub sentence: String,
 }
@@ -137,9 +197,9 @@ pub enum FailureReason {
     ModelUnavailable,
     /// The Provider could not be reached.
     Network,
-    /// The article could not be fetched, or had no body.
+    /// The article could not be fetched or read, or had no body.
     Fetch,
-    /// The Model's reply was not valid Pass 1 JSON.
+    /// The Model's reply was not valid Pass 1 or Pass 2 JSON.
     BadOutput,
     /// Anything else.
     Other,
@@ -347,7 +407,14 @@ mod tests {
         };
         assert_eq!(
             kinds,
-            names(&["started", "progress", "done", "entities", "failed"])
+            names(&[
+                "started",
+                "progress",
+                "done",
+                "entities",
+                "relationships",
+                "failed"
+            ])
         );
         assert_eq!(
             reasons,

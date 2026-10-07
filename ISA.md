@@ -3,7 +3,7 @@ task: "Respec: rebuild Specter local-first and prove the loop"
 slug: 20261001-respec
 project: respec
 phase: climbing
-progress: 11/66
+progress: 13/67
 started: 2026-10-01T19:12:36Z
 updated: 2026-10-07T00:00:00Z
 principal_stated_goal: "we'll build a new fork of it keeping only essential and reusable items (if any) and start from scratch"
@@ -130,7 +130,8 @@ Why: one pasted article travels the whole pipeline on a free model before anythi
 - [ ] ISC-53: Every failure class (auth, daily quota, rate limit, model gone, truncated, network) maps to a plain-language message with a next step.
 - [x] ISC-54: Anti: no request to Gemini carries prompt-caching directives (Specter's cached-content calls hit a zero quota).
 - [ ] ISC-55: Jobs run one at a time, in submission order.
-- [ ] ISC-61: Extraction makes two passes per article: pass 1 proposes entities, Events included (with date and place), and pass 2 proposes relationships, including participants to Events. There is no third pass.
+- [x] ISC-61: Extraction makes two passes per article: pass 1 proposes entities, Events included (with date and place), and pass 2 proposes relationships, including participants to Events. There is no third pass.
+- [x] ISC-63: A Model reply with one malformed item still yields its other items; the malformed item is dropped and counted, never a failure of the whole reply.
 
 ### F2 · Review and the firewall
 Why: nothing reaches Knowledge without a deliberate approval, and every approved fact leads back to its sentence.
@@ -226,6 +227,7 @@ Why: measure quality on real articles before trusting or tuning prompts, the cal
 | ISC-54 | bash | worker test: Gemini request bodies carry no cache directives | 0 | `uv run pytest -k gemini_no_cache` | derived: prove-the-loop |
 | ISC-55 | bash | submit three jobs; at most one worker process runs at a time | <= 1 | `cargo test serial_queue` | derived: prove-the-loop |
 | ISC-61 | bash | worker test on a fixture: exactly two model calls; Event entities carry date and place and have participant relationships | 2 calls | `uv run pytest -k two_pass_events` | derived: prove-the-loop |
+| ISC-63 | bash | worker test: a reply with one garbled item key yields the rest, with a dropped count of 1, for both passes | pass | `uv run pytest -k malformed_item` | derived: prove-the-loop |
 | ISC-18 | screenshot | queue grouped by document with sentences visible | visible | Interceptor | derived: firewall |
 | ISC-19 | curl | approve then fetch entity: observation has document id and sentence | present | `curl -i localhost:PORT/api/...` | derived: firewall |
 | ISC-20 | curl | reject then queue omits item; log has rejection | pass | `curl -i` + log grep | derived: firewall |
@@ -358,6 +360,12 @@ Why: measure quality on real articles before trusting or tuning prompts, the cal
 - 2026-10-07: **S3 sliced** into six `.scratch/` issues: two-pass extraction with Events, verbatim sentences with offsets, output budget and truncation, no cache directives to Gemini, the daily-quota pause, and fallback with plain failure messages. The last two wait for pairing call 1, because the friend's accounts may change how they should work.
 - 2026-10-07: **URL canonicalisation moves to S6.** No claim needs it, and Documents are created in Rust. S6 decides whether duplicate Documents earn a claim; if not, Specter's `canonicalize.py` is dropped with a row here.
 - 2026-10-07: **Labels are drafted by an agent and checked by the principal** (S4 and S9). He would rather verify than generate, since he lacks the domain expertise to label well. To limit anchoring on the draft, the drafter is a Claude model and never one of the free Models under test, and his check asks what is missing before what is wrong.
+- 2026-10-07: **Two-pass extraction (S3 issue 01).**
+  - `respec-worker extract` takes the Document by `--url` or `--text-file`, so the S4 evals run on local corpus bodies. An unreadable or empty file fails with reason `fetch`.
+  - The worker gives each Pass 1 Entity a short id, and Pass 2 refers to Entities only by id. An `entities` message follows Pass 1, and a `relationships` message ends the run. Progress during a pass carries `pass_number` and `pass_count`.
+  - Events carry `date` (partial ISO: year, year-month or full date) and `place`, each null when the article does not say. The date's form is its precision; a separate precision field was one more thing for the Model to get wrong.
+  - The one participant type is Specter's `PARTICIPATED_IN`. Its target must be an Event and its source must not be. Specter's `event_candidate` flags and Pass 3 are gone.
+  - Replies are validated item by item (ISC-63). A malformed item, an unknown id or a bad `PARTICIPATED_IN` end is dropped and counted. The drop is logged with its error type and field, never content. Unknown keys are ignored and key whitespace is stripped, because one live draw lost 64 of 67 Entities to an invented key.
 
 ## Learning
 
@@ -379,6 +387,10 @@ Why: measure quality on real articles before trusting or tuning prompts, the cal
   - refuted by: four Pass 1 runs of `gemini-flash-lite-latest` on the same 28.5k-character Insider article on 2026-10-02 and 03, which returned 61, 67, 30 and 56 entities. Each run took 12 to 21 s, against 213 s for the 2026-10-01 probe on an OpenRouter free Model. OpenRouter's nemotron took 49 s and proposed 20.
   - learned: run-to-run variance is large, so recall needs several samples per article, and the friend's five-minute check sees a single draw.
   - criterion now: ISC-43, 43.1 and 62 already score 3 samples; keep that in S4.
+- conjectured: validating a Model's reply as one whole object is safe, since a malformed reply is rare.
+  - refuted by: four live Pass 1 calls of `gemini-flash-lite-latest` on a 33k-character corpus article on 2026-10-07. Three failed as `bad_output`, each on one item out of 30 to 38 with a garbled key, such as `supporting_sentences` with a leading space. With that item dropped, Pass 2 validated on both runs that reached it.
+  - learned: free Models garble single items often, and one bad item must not cost the whole reply. This is Specter's 29-runs-0-successes failure in small.
+  - criterion now: ISC-63.
 
 ## Verification
 
@@ -393,3 +405,5 @@ Why: measure quality on real articles before trusting or tuning prompts, the cal
 - ISC-59: `curl -s localhost:7377/api/settings` returned 404 at `b229646`. After saving a fake key it returned only its last four (`wxyz`). The full key had 0 hits in the server log, and `keys.json` was mode 600 in a 700 directory.
 - ISC-37: `uv run pytest -k provider_hosts` selected no tests at `b6acc73`, so pytest exited 5. After the build it passes 4. Pointing Gemini's URL at OpenRouter's host turned it red. Live, both Providers answered through `POST /api/test-call`, and their keys had 0 hits in the server log.
 - ISC-54: `uv run pytest -k gemini_no_cache` selected no tests at `5b2c172` (exit 5) and passes 2 after the build. Planting `cachedContent` in the payload, and separately a `cached_content` key nested two levels deep, turned both tests red.
+- ISC-61: `uv run pytest -k two_pass_events` selected no tests at `5b2c172` (exit 5) and passes 14 after the build. Live on Gemini, `extract` ran both passes on two corpus bodies (28.9k and 33k characters) and one Insider URL: 31 to 63 Entities, 1 to 4 Events each with date and place, 22 to 38 Relationships, in 17 to 60 s.
+- ISC-63: `uv run pytest -k malformed_item` selected no tests at `00d683f` and passes 52 after the build. Breaking the log redaction, the dropped count or the `PARTICIPATED_IN` rule each turned a test red. Before the fix, 3 of 4 live Pass 1 replies failed whole on one garbled item.

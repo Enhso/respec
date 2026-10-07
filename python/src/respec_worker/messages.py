@@ -26,7 +26,7 @@ Reason = Literal[
 """Why a run failed, in terms the operator can act on."""
 
 Stage = Literal["fetching", "calling_model", "waiting_rate_limit"]
-"""What a running test extraction is doing."""
+"""What a running extraction is doing."""
 
 
 class _Message(BaseModel):
@@ -51,39 +51,92 @@ class Done(_Message):
 
 
 class Progress(_Message):
-    """A test extraction is working; ``detail`` is one plain sentence."""
+    """An extraction is working; ``detail`` is one plain sentence.
+
+    While a pass of ``extract`` runs, ``pass_number`` and ``pass_count`` say
+    which pass it is ("pass 1 of 2"). Both are null for fetching and for the
+    single call of ``test-extraction``.
+    """
 
     kind: Literal["progress"] = "progress"
     provider: Provider
     stage: Stage
     detail: str
+    pass_number: int | None = None
+    pass_count: int | None = None
 
 
 class DocumentSummary(_Message):
-    """The Document a test extraction read: where from, its title, its size."""
+    """The Document an extraction read: where from, its title, its size.
 
-    url: str
+    Both ``url`` and ``title`` are null for Document text read from a file.
+    """
+
+    url: str | None
     title: str | None
     chars: int
     """The length of the Document text, in characters."""
 
 
 class ProposedEntity(_Message):
-    """One entity Proposal: its kind, its name and its first supporting sentence."""
+    """One entity Proposal: its id, kind, name and first supporting sentence.
 
+    ``id`` is the short id the worker stamped (``e1``, ``e2``, ...); Pass 2
+    refers to the entity by it. ``date`` (ISO 8601, which may stop at the year
+    or the month) and ``place`` belong to an Event and are null for every other
+    kind, and for an Event whose article does not say.
+    """
+
+    id: str
     label: str
     name: str
     sentence: str
+    date: str | None = None
+    place: str | None = None
 
 
 class Entities(_Message):
-    """A test extraction succeeded: the entity Proposals ``model`` made."""
+    """The entity Proposals ``model`` made. It ends a ``test-extraction`` run;
+    in an ``extract`` run it follows Pass 1 and ``Relationships`` ends the run.
+
+    ``dropped`` counts the items of the Model's reply that were left out for
+    being malformed.
+    """
 
     kind: Literal["entities"] = "entities"
     provider: Provider
     model: str
     document: DocumentSummary
     entities: list[ProposedEntity]
+    dropped: int
+
+
+class ProposedRelationship(_Message):
+    """One relationship Proposal between two entities, named by their ids."""
+
+    type: str
+    from_id: str
+    to_id: str
+    date_from: str | None
+    date_to: str | None
+    date_precision: str
+    sentence: str
+    """The Proposal's first supporting sentence."""
+
+
+class Relationships(_Message):
+    """An ``extract`` run succeeded: the relationship Proposals ``model`` made.
+
+    ``dropped`` counts the items of the Model's reply that were left out: those
+    that were malformed, those that named an id Pass 1 never gave, and
+    participant links that did not go from an entity to an Event.
+    """
+
+    kind: Literal["relationships"] = "relationships"
+    provider: Provider
+    model: str
+    relationships: list[ProposedRelationship]
+    dropped: int
 
 
 class Failed(_Message):
@@ -95,7 +148,7 @@ class Failed(_Message):
     message: str
 
 
-AnyMessage = Started | Progress | Done | Entities | Failed
+AnyMessage = Started | Progress | Done | Entities | Relationships | Failed
 """Any one worker message."""
 
 Message = Annotated[AnyMessage, Field(discriminator="kind")]

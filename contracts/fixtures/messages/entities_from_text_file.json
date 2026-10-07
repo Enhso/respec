@@ -1,0 +1,1 @@
+{"kind": "entities", "provider": "gemini", "model": "example-model", "document": {"url": null, "title": null, "chars": 9120}, "entities": [{"id": "e1", "label": "Organization", "name": "Dolmen Freight Ltd", "sentence": "Dolmen Freight Ltd booked the container.", "date": null, "place": null}], "dropped": 2}
