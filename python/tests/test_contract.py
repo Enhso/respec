@@ -55,6 +55,7 @@ def test_contract_fixtures_exercise_the_two_pass_shapes() -> None:
     entities = [m for m in messages if isinstance(m, Entities)]
     assert any(m.dropped > 0 for m in entities)
     assert any(m.dropped == 0 for m in entities)
+    assert any(m.sentences_dropped > 0 for m in entities)
     assert any(isinstance(m, Entities) and m.document.url is None for m in messages)
     assert any(
         isinstance(m, Progress) and (m.pass_number, m.pass_count) == (1, 2)
@@ -63,6 +64,7 @@ def test_contract_fixtures_exercise_the_two_pass_shapes() -> None:
     assert any(isinstance(m, Progress) and m.pass_number is None for m in messages)
     relationships = [m for m in messages if isinstance(m, Relationships)]
     assert any(m.dropped > 0 for m in relationships)
+    assert any(m.sentences_dropped > 0 for m in relationships)
     assert any(
         r.date_from and r.date_precision for m in relationships for r in m.relationships
     )
@@ -89,4 +91,36 @@ def test_the_participant_fixture_links_an_entity_to_an_event() -> None:
     assert all(labels[r.from_id] != "Event" for r in participants)
     assert all(
         r.from_id in labels and r.to_id in labels for r in relationships.relationships
+    )
+
+
+def test_contract_fixture_offsets_are_code_points_of_the_sentence() -> None:
+    """Each sentence's offsets span exactly its characters (end exclusive), and
+    an entity's sentence lies inside its Document's `chars`."""
+    messages = [
+        MESSAGE_ADAPTER.validate_json(path.read_bytes())
+        for path in sorted(MESSAGES_DIR.glob("*.json"))
+    ]
+
+    checked = 0
+    for message in messages:
+        if isinstance(message, Entities):
+            for entity in message.entities:
+                assert entity.sentence_end - entity.sentence_start == len(
+                    entity.sentence
+                )
+                assert 0 <= entity.sentence_start
+                assert entity.sentence_end <= message.document.chars
+                checked += 1
+        elif isinstance(message, Relationships):
+            for link in message.relationships:
+                assert link.sentence_end - link.sentence_start == len(link.sentence)
+                assert 0 <= link.sentence_start
+                checked += 1
+    assert checked >= 5
+    assert any(
+        not entity.sentence.isascii()
+        for message in messages
+        if isinstance(message, Entities)
+        for entity in message.entities
     )

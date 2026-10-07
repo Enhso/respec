@@ -8,7 +8,11 @@ import pytest
 from respec_worker.extraction import (
     PASS1_MAX_TOKENS,
     BadOutput,
-    Pass1Response,
+    DocumentText,
+    Grounded,
+    Pass1EntityProposal,
+    Pass2RelationshipProposal,
+    ground,
     known_relationships,
     load_prompt,
     parse_pass1,
@@ -645,28 +649,46 @@ def test_the_same_day_or_a_later_end_date_is_in_order() -> None:
 # ---- the entity table, the Pass 2 prompt and the unresolvable links ----
 
 
-def _pass1() -> Pass1Response:
-    return parse_pass1(
-        _entities_reply(
-            _entity(attributes={"nationality": "Veldovan"}),
-            _entity(
-                "Arrival of the shipment in Karsk",
-                label="Event",
-                date="2024-02",
-                place="Karsk",
-            ),
-            _entity("Karsk", label="Location"),
-            _entity("Inspection of the yard", label="Event"),
-        )
+def _grounded[Proposal: Pass1EntityProposal | Pass2RelationshipProposal](
+    proposals: list[Proposal],
+) -> list[Grounded[Proposal]]:
+    """``proposals`` grounded in a Document text made of their own sentences."""
+    text = "\n".join(s for p in proposals for s in p.supporting_sentences)
+    return ground(proposals, DocumentText(text), "proposal").kept
+
+
+def _table(*items: object) -> dict[str, Grounded[Pass1EntityProposal]]:
+    return stamp_ids(_grounded(parse_pass1(_entities_reply(*items)).entities))
+
+
+def _pass1() -> dict[str, Grounded[Pass1EntityProposal]]:
+    return _table(
+        _entity(attributes={"nationality": "Veldovan"}),
+        _entity(
+            "Arrival of the shipment in Karsk",
+            label="Event",
+            date="2024-02",
+            place="Karsk",
+        ),
+        _entity("Karsk", label="Location"),
+        _entity("Inspection of the yard", label="Event"),
     )
+
+
+def _resolved(
+    reply: str,
+) -> tuple[list[Grounded[Pass2RelationshipProposal]], int]:
+    """``reply`` parsed, grounded and resolved against ``_pass1()``'s entities."""
+    links = _grounded(parse_pass2(reply).relationships)
+    return known_relationships(links, _pass1())
 
 
 def test_entities_get_short_ids_in_the_models_order() -> None:
     """e1, e2, ...: stamped by the worker, never by the Model."""
-    table = stamp_ids(_pass1())
+    table = _pass1()
 
     assert list(table) == ["e1", "e2", "e3", "e4"]
-    assert [entity.name for entity in table.values()] == [
+    assert [g.proposal.name for g in table.values()] == [
         "Ada Verrin",
         "Arrival of the shipment in Karsk",
         "Karsk",
@@ -676,11 +698,9 @@ def test_entities_get_short_ids_in_the_models_order() -> None:
 
 def test_malformed_item_dropped_in_pass1_leaves_the_ids_unbroken() -> None:
     """The ids are stamped after the drop, so e1, e2 have no gap for Pass 2."""
-    response = parse_pass1(
-        _entities_reply(_entity("Ada Verrin"), _entity(label="Dog"), _entity("MV Lark"))
-    )
+    table = _table(_entity("Ada Verrin"), _entity(label="Dog"), _entity("MV Lark"))
 
-    assert {i: e.name for i, e in stamp_ids(response).items()} == {
+    assert {i: g.proposal.name for i, g in table.items()} == {
         "e1": "Ada Verrin",
         "e2": "MV Lark",
     }
@@ -690,7 +710,7 @@ def test_pass2_messages_list_the_entities_by_id_then_the_body() -> None:
     """The user message names the pass, gives each entity's id, kind and name
     (and an Event's date and place when it has them), and holds the Document
     text."""
-    system, user = pass2_messages("THE DOCUMENT TEXT", stamp_ids(_pass1()))
+    system, user = pass2_messages("THE DOCUMENT TEXT", _pass1())
 
     assert system == {"role": "system", "content": load_prompt("system.md")}
     assert user["role"] == "user"
@@ -709,9 +729,9 @@ def test_pass2_messages_list_the_entities_by_id_then_the_body() -> None:
 
 def test_a_placeholder_inside_a_name_or_the_text_is_left_alone_in_pass2() -> None:
     """`{body}` in an entity name and `{entities}` in the article are text."""
-    response = parse_pass1(_entity_json("Person", "Mr {body}", '["a"]'))
+    table = _table(_entity("Mr {body}"))
 
-    _, user = pass2_messages("see {entities} here", stamp_ids(response))
+    _, user = pass2_messages("see {entities} here", table)
 
     assert '"name":"Mr {body}"' in user["content"]
     assert "see {entities} here" in user["content"]
@@ -719,8 +739,7 @@ def test_a_placeholder_inside_a_name_or_the_text_is_left_alone_in_pass2() -> Non
 
 def test_a_relationship_naming_an_unknown_id_is_dropped_and_counted() -> None:
     """Either end can be unknown; the known ones are kept in order."""
-    table = stamp_ids(_pass1())
-    response = parse_pass2(
+    kept, dropped = _resolved(
         _links(
             _link(from_id="e1", to_id="e2"),
             _link(from_id="e9", to_id="e2"),
@@ -730,9 +749,7 @@ def test_a_relationship_naming_an_unknown_id_is_dropped_and_counted() -> None:
         )
     )
 
-    kept, dropped = known_relationships(response, table)
-
-    assert [(r.type, r.from_id, r.to_id) for r in kept] == [
+    assert [(r.proposal.type, r.proposal.from_id, r.proposal.to_id) for r in kept] == [
         ("PARTICIPATED_IN", "e1", "e2"),
         ("LOCATED_IN", "e2", "e3"),
     ]
@@ -755,9 +772,7 @@ def test_a_participant_link_must_go_from_a_non_event_to_an_event(
 ) -> None:
     """`PARTICIPATED_IN` with an Event at the wrong end, or no Event at all, is
     dropped and counted like an unknown id."""
-    response = parse_pass2(_links(_link(from_id=from_id, to_id=to_id)))
-
-    kept, dropped = known_relationships(response, stamp_ids(_pass1()))
+    kept, dropped = _resolved(_links(_link(from_id=from_id, to_id=to_id)))
 
     assert kept == [] and dropped == 1
 
@@ -767,16 +782,14 @@ def test_a_participant_link_from_a_non_event_to_an_event_is_kept(
     from_id: str, to_id: str
 ) -> None:
     """Any non-Event can take part in any Event."""
-    response = parse_pass2(_links(_link(from_id=from_id, to_id=to_id)))
-
-    kept, dropped = known_relationships(response, stamp_ids(_pass1()))
+    kept, dropped = _resolved(_links(_link(from_id=from_id, to_id=to_id)))
 
     assert len(kept) == 1 and dropped == 0
 
 
 def test_other_types_may_have_an_event_at_either_end() -> None:
     """Only `PARTICIPATED_IN` has the Event rule."""
-    response = parse_pass2(
+    kept, dropped = _resolved(
         _links(
             _link(type="LOCATED_IN", from_id="e2", to_id="e3"),
             _link(type="ASSOCIATED_WITH", from_id="e1", to_id="e4"),
@@ -784,34 +797,11 @@ def test_other_types_may_have_an_event_at_either_end() -> None:
         )
     )
 
-    kept, dropped = known_relationships(response, stamp_ids(_pass1()))
-
     assert len(kept) == 3 and dropped == 0
 
 
-def test_malformed_items_are_counted_with_the_unresolvable_links() -> None:
-    """One `dropped`: items that failed validation, unknown ids, and participant
-    links with the wrong ends."""
-    table = stamp_ids(_pass1())
-    response = parse_pass2(
-        _links(
-            _link(),
-            _link(type="MENTIONS"),
-            _link(from_id="e9"),
-            _link(from_id="e2", to_id="e1"),
-        )
-    )
-
-    kept, dropped = known_relationships(response, table)
-
-    assert len(kept) == 1
-    assert dropped == 3
-
-
-def test_no_dropped_items_and_no_unknown_ids_drops_nothing() -> None:
-    """The count is zero when every item validates and resolves."""
-    table = stamp_ids(_pass1())
-
-    kept, dropped = known_relationships(parse_pass2(_links(_link())), table)
+def test_no_unknown_ids_and_no_wrong_ends_drops_nothing() -> None:
+    """The count is zero when every link resolves."""
+    kept, dropped = _resolved(_links(_link()))
 
     assert len(kept) == 1 and dropped == 0

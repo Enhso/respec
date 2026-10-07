@@ -75,9 +75,12 @@ pub enum WorkerMessage {
         document: DocumentSummary,
         /// The entity Proposals, in the Model's order.
         entities: Vec<ProposedEntity>,
-        /// How many items of the Model's reply were left out for being
-        /// malformed.
+        /// How many Proposals were left out: malformed items of the Model's
+        /// reply, and ones with no supporting sentence found in the Document
+        /// text.
         dropped: u64,
+        /// How many supporting sentences were not found in the Document text.
+        sentences_dropped: u64,
     },
     /// An `extract` run succeeded.
     Relationships {
@@ -88,9 +91,12 @@ pub enum WorkerMessage {
         /// The relationship Proposals, in the Model's order.
         relationships: Vec<ProposedRelationship>,
         /// How many items of the Model's reply were left out: malformed ones,
-        /// ones naming an entity id that Pass 1 never gave, and participant
-        /// links that do not go from an entity to an Event.
+        /// ones with no supporting sentence found in the Document text, ones
+        /// naming an entity id that Pass 1 never gave, and participant links
+        /// that do not go from an entity to an Event.
         dropped: u64,
+        /// How many supporting sentences were not found in the Document text.
+        sentences_dropped: u64,
     },
     /// The run failed.
     Failed {
@@ -150,8 +156,13 @@ pub struct ProposedEntity {
     pub label: String,
     /// The entity's name.
     pub name: String,
-    /// The Proposal's first supporting sentence.
+    /// The Proposal's first supporting sentence: the Document text's own slice
+    /// from `sentence_start` to `sentence_end`.
     pub sentence: String,
+    /// Where the sentence starts in the Document text, in Unicode code points.
+    pub sentence_start: u64,
+    /// Where the sentence ends, in code points, exclusive.
+    pub sentence_end: u64,
     /// An Event's date, as ISO 8601 that may stop at the year or the month;
     /// its form is its precision. Null for every other kind, and for an Event
     /// the article does not date.
@@ -179,8 +190,13 @@ pub struct ProposedRelationship {
     /// How exactly the dates are known: exact, day, month, year, range or
     /// unknown.
     pub date_precision: String,
-    /// The Proposal's first supporting sentence.
+    /// The Proposal's first supporting sentence: the Document text's own slice
+    /// from `sentence_start` to `sentence_end`.
     pub sentence: String,
+    /// Where the sentence starts in the Document text, in Unicode code points.
+    pub sentence_start: u64,
+    /// Where the sentence ends, in code points, exclusive.
+    pub sentence_end: u64,
 }
 
 /// Why a run failed, in terms the operator can act on.
@@ -394,6 +410,25 @@ mod tests {
             }
             let message: WorkerMessage = serde_json::from_str(&text)
                 .unwrap_or_else(|err| panic!("{} is not a WorkerMessage: {err}", path.display()));
+            let spans: Vec<(&str, u64, u64)> = match &message {
+                WorkerMessage::Entities { entities, .. } => entities
+                    .iter()
+                    .map(|e| (e.sentence.as_str(), e.sentence_start, e.sentence_end))
+                    .collect(),
+                WorkerMessage::Relationships { relationships, .. } => relationships
+                    .iter()
+                    .map(|r| (r.sentence.as_str(), r.sentence_start, r.sentence_end))
+                    .collect(),
+                _ => Vec::new(),
+            };
+            for (sentence, start, end) in spans {
+                assert_eq!(
+                    end - start,
+                    sentence.chars().count() as u64,
+                    "{}: offsets are code points of the sentence",
+                    path.display()
+                );
+            }
             assert_eq!(
                 serde_json::to_value(&message).expect("serialises"),
                 raw,

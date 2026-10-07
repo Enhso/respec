@@ -3,7 +3,7 @@ task: "Respec: rebuild Specter local-first and prove the loop"
 slug: 20261001-respec
 project: respec
 phase: climbing
-progress: 13/67
+progress: 15/67
 started: 2026-10-01T19:12:36Z
 updated: 2026-10-07T00:00:00Z
 principal_stated_goal: "we'll build a new fork of it keeping only essential and reusable items (if any) and start from scratch"
@@ -191,8 +191,8 @@ Why: measure quality on real articles before trusting or tuning prompts, the cal
 - [ ] ISC-43: Recall of labelled key entities is at least 0.8 on the eval set with the chosen free model. (after: ISC-42)
 - [ ] ISC-43.1: Recall of labelled key relationships is at least 0.6 on the eval set (provisional, re-set at the quality gate). (after: ISC-42)
 - [ ] ISC-62: Recall of labelled key events is at least 0.6 on the eval set. Below that, Events are dropped or a third pass returns, with a Decisions row either way. (after: ISC-42)
-- [ ] ISC-44: Anti: a proposal whose sentence is not found in the document text, under one normalisation rule for quotes and whitespace, is dropped and counted, never staged.
-- [ ] ISC-44.1: Every staged sentence is stored with its character offsets in the document text.
+- [x] ISC-44: Anti: a proposal whose sentence is not found in the document text, under one normalisation rule for quotes and whitespace, is dropped and counted, never staged.
+- [x] ISC-44.1: Every staged sentence is stored with its character offsets in the document text.
 
 ## Test Strategy
 
@@ -366,6 +366,7 @@ Why: measure quality on real articles before trusting or tuning prompts, the cal
   - Events carry `date` (partial ISO: year, year-month or full date) and `place`, each null when the article does not say. The date's form is its precision; a separate precision field was one more thing for the Model to get wrong.
   - The one participant type is Specter's `PARTICIPATED_IN`. Its target must be an Event and its source must not be. Specter's `event_candidate` flags and Pass 3 are gone.
   - Replies are validated item by item (ISC-63). A malformed item, an unknown id or a bad `PARTICIPATED_IN` end is dropped and counted. The drop is logged with its error type and field, never content. Unknown keys are ignored and key whitespace is stripped, because one live draw lost 64 of 67 Entities to an invented key.
+- 2026-10-07: **Verbatim sentences (S3 issue 02).** Matching folds curly and straight quotes and collapses whitespace, but the emitted `sentence` is the Document text's own slice, with `sentence_start` and `sentence_end` in Unicode code points, end exclusive. The first occurrence wins. `sentences_dropped` counts unfound sentences; `dropped` still counts items. `--text-file` reads bytes, so CRLF stays and offsets index the file's own characters.
 
 ## Learning
 
@@ -407,3 +408,5 @@ Why: measure quality on real articles before trusting or tuning prompts, the cal
 - ISC-54: `uv run pytest -k gemini_no_cache` selected no tests at `5b2c172` (exit 5) and passes 2 after the build. Planting `cachedContent` in the payload, and separately a `cached_content` key nested two levels deep, turned both tests red.
 - ISC-61: `uv run pytest -k two_pass_events` selected no tests at `5b2c172` (exit 5) and passes 14 after the build. Live on Gemini, `extract` ran both passes on two corpus bodies (28.9k and 33k characters) and one Insider URL: 31 to 63 Entities, 1 to 4 Events each with date and place, 22 to 38 Relationships, in 17 to 60 s.
 - ISC-63: `uv run pytest -k malformed_item` selected no tests at `00d683f` and passes 52 after the build. Breaking the log redaction, the dropped count or the `PARTICIPATED_IN` rule each turned a test red. Before the fix, 3 of 4 live Pass 1 replies failed whole on one garbled item.
+- ISC-44: `uv run pytest -k verbatim` had no tests at `e2598dc` and passes 31 after the build. Emitting the Model's wording, not folding quotes, and keeping a Proposal with no found sentence each turned tests red.
+- ISC-44.1: `uv run pytest -k offsets` had no tests at `e2598dc` and passes 9 after the build. An off-by-one end and translated newlines each turned tests red. A live check of offsets on a real article is still owed (PLAN Now).

@@ -837,7 +837,7 @@ printf '{"kind":"progress","provider":"gemini","stage":"fetching","detail":"args
 sleep 1
 echo '{"kind":"progress","provider":"gemini","stage":"calling_model","detail":"Calling fake-model on 1,204 characters"}'
 echo '{"kind":"progress","provider":"gemini","stage":"waiting_rate_limit","detail":"Rate limited; retrying in 5 s (attempt 2 of 6)"}'
-echo '{"kind":"entities","provider":"gemini","model":"fake-model","document":{"url":"https://news.example/articles/42","title":null,"chars":1204},"entities":[{"id":"e1","label":"Person","name":"Ada Verrin","sentence":"Ada Verrin signed the order.","date":null,"place":null},{"id":"e2","label":"Vessel","name":"MV Lark","sentence":"The MV Lark sailed in May.","date":null,"place":null}],"dropped":0}'
+echo '{"kind":"entities","provider":"gemini","model":"fake-model","document":{"url":"https://news.example/articles/42","title":null,"chars":1204},"entities":[{"id":"e1","label":"Person","name":"Ada Verrin","sentence":"Ada Verrin signed the order.","sentence_start":10,"sentence_end":38,"date":null,"place":null},{"id":"e2","label":"Vessel","name":"MV Lark","sentence":"The MV Lark sailed in May.","sentence_start":50,"sentence_end":76,"date":null,"place":null}],"dropped":0,"sentences_dropped":0}'
 "#;
 
     /// Polls `GET /api/test-extraction` until the run is no longer running.
@@ -925,8 +925,8 @@ echo '{"kind":"entities","provider":"gemini","model":"fake-model","document":{"u
                     "model": "fake-model",
                     "document": { "url": ARTICLE_URL, "title": null, "chars": 1204 },
                     "entities": [
-                        { "id": "e1", "label": "Person", "name": "Ada Verrin", "sentence": "Ada Verrin signed the order.", "date": null, "place": null },
-                        { "id": "e2", "label": "Vessel", "name": "MV Lark", "sentence": "The MV Lark sailed in May.", "date": null, "place": null },
+                        { "id": "e1", "label": "Person", "name": "Ada Verrin", "sentence": "Ada Verrin signed the order.", "sentence_start": 10, "sentence_end": 38, "date": null, "place": null },
+                        { "id": "e2", "label": "Vessel", "name": "MV Lark", "sentence": "The MV Lark sailed in May.", "sentence_start": 50, "sentence_end": 76, "date": null, "place": null },
                     ],
                 },
             })

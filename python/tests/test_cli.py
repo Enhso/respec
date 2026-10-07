@@ -1,6 +1,7 @@
 """Tests for the worker command-line interface."""
 
 import os
+import re
 import subprocess
 import sys
 from collections.abc import Callable
@@ -14,6 +15,7 @@ import pytest
 
 from respec_worker.cli import main
 from respec_worker.extraction import PASS1_MAX_TOKENS
+from respec_worker.fetch import fetch_article
 from respec_worker.messages import (
     MESSAGE_ADAPTER,
     AnyMessage,
@@ -137,15 +139,37 @@ def test_no_arguments_prints_help_and_exits_zero(
 
 # ---- test-extraction ----
 
+DIRECTORATE = (
+    "The State Review Directorate did not respond to a request for comment "
+    "sent through its official press contact."
+)
+MINISTRY = (
+    "A spokesperson for the Veldovan foreign ministry dismissed the documents "
+    "as fabrications, without addressing any specific claim."
+)
+PENNICK = (
+    "The Pennick Review has obtained documents that detail Veldovan "
+    "intelligence operations across the Lower Marches over the past decade."
+)
 REPLY = (
     "```json\n"
-    '{"entities": ['
-    '{"label": "Organization", "name": "State Review Directorate", '
-    '"supporting_sentences": ["A source inside the State Review Directorate left.", '
-    '"A second sentence."]}, '
-    '{"label": "Person", "name": "Ada Verrin", '
-    '"supporting_sentences": ["Ada Verrin signed the order."]}'
-    "]}\n```"
+    + orjson.dumps(
+        {
+            "entities": [
+                {
+                    "label": "Organization",
+                    "name": "State Review Directorate",
+                    "supporting_sentences": [DIRECTORATE, MINISTRY],
+                },
+                {
+                    "label": "Organization",
+                    "name": "The Pennick Review",
+                    "supporting_sentences": [PENNICK],
+                },
+            ]
+        }
+    ).decode()
+    + "\n```"
 )
 
 
@@ -179,6 +203,22 @@ class Network:
             return httpx.Response(self.article_status, text=self.page)
         queue = self.chat_responses
         return queue.pop(0) if len(queue) > 1 else queue[0]
+
+
+def _article_text(page: str) -> str:
+    """The Document text the worker reads from the fixture page."""
+    html = (ARTICLES / f"{page}.html").read_text(encoding="utf-8")
+    transport = httpx.MockTransport(lambda request: httpx.Response(200, text=html))
+    return fetch_article(ARTICLE_URL, transport=transport).body
+
+
+def _span(text: str, sentence: str) -> tuple[str, int, int]:
+    """Where ``sentence`` is in ``text`` when any whitespace may separate its
+    words: the Document text's own slice, and its start and end."""
+    pattern = r"\s+".join(re.escape(word) for word in sentence.split())
+    match = re.search(pattern, text)
+    assert match is not None, sentence
+    return match.group(), match.start(), match.end()
 
 
 def _extract(
@@ -228,6 +268,11 @@ def test_test_extraction_fetches_calls_once_and_reports_the_proposals(
             detail=f"Calling {spec.default_model} on {chars:,} characters",
         ),
     ]
+    text = _article_text("campaign_documents")
+    assert chars == len(text)
+    directorate, directorate_start, directorate_end = _span(text, DIRECTORATE)
+    pennick, pennick_start, pennick_end = _span(text, PENNICK)
+    assert "\n" in pennick  # the Document text's slice, not the Model's line
     assert final == Entities(
         provider=provider,
         model=spec.default_model,
@@ -241,16 +286,21 @@ def test_test_extraction_fetches_calls_once_and_reports_the_proposals(
                 id="e1",
                 label="Organization",
                 name="State Review Directorate",
-                sentence="A source inside the State Review Directorate left.",
+                sentence=directorate,
+                sentence_start=directorate_start,
+                sentence_end=directorate_end,
             ),
             ProposedEntity(
                 id="e2",
-                label="Person",
-                name="Ada Verrin",
-                sentence="Ada Verrin signed the order.",
+                label="Organization",
+                name="The Pennick Review",
+                sentence=pennick,
+                sentence_start=pennick_start,
+                sentence_end=pennick_end,
             ),
         ],
         dropped=0,
+        sentences_dropped=0,
     )
     (request,) = network.chat_requests
     assert request.url.host == spec.host
@@ -457,49 +507,50 @@ def test_messages_are_written_as_utf8_whatever_the_stdout_encoding() -> None:
 
 SHIPMENT_URL = "https://news.example/articles/42"
 
+ROUTE = (
+    "This investigation traces a single shipment of dual-use machine tools "
+    "from Port Verrin to a workshop on the outskirts of Karsk."
+)
+ARRIVAL = (
+    "The shipment arrived in Karsk in February 2024 and was offloaded at a "
+    "private logistics yard inside an industrial park that also houses several "
+    "small machine shops."
+)
+REPORTER = (
+    "A reporter for Tidemark reached out to the registered director of the "
+    "consignee company; calls and emails received no response."
+)
+NETWORK = (
+    "Open-source records show that the consignee, a company registered in "
+    "Dolmen Oblast, is one of three known front companies linked to a "
+    "sanctioned Veldovan defence procurement network."
+)
+IMAGERY = (
+    "We were able to confirm the receipt by matching containers visible in "
+    "Lantern-4 imagery from 12 February 2024 against the unique markings "
+    "logged in the Port Verrin shipping manifest."
+)
+
 SHIPMENT_ENTITIES = [
-    {
-        "label": "Location",
-        "name": "Port Verrin",
-        "supporting_sentences": [
-            "This investigation traces a single shipment of dual-use machine tools "
-            "from Port Verrin to a workshop on the outskirts of Karsk."
-        ],
-    },
-    {
-        "label": "Location",
-        "name": "Karsk",
-        "supporting_sentences": ["The shipment arrived in Karsk in February 2024."],
-    },
-    {
-        "label": "Organization",
-        "name": "Tidemark",
-        "supporting_sentences": [
-            "A reporter for Tidemark reached out to the registered director."
-        ],
-    },
+    {"label": "Location", "name": "Port Verrin", "supporting_sentences": [ROUTE]},
+    {"label": "Location", "name": "Karsk", "supporting_sentences": [ARRIVAL]},
+    {"label": "Organization", "name": "Tidemark", "supporting_sentences": [REPORTER]},
     {
         "label": "Organization",
         "name": "Veldovan defence procurement network",
-        "supporting_sentences": [
-            "The consignee is one of three known front companies linked to a "
-            "sanctioned Veldovan defence procurement network."
-        ],
+        "supporting_sentences": [NETWORK],
     },
     {
         "label": "Event",
         "name": "Arrival of the shipment in Karsk",
-        "supporting_sentences": ["The shipment arrived in Karsk in February 2024."],
+        "supporting_sentences": [ARRIVAL],
         "date": "2024-02",
         "place": "Karsk",
     },
     {
         "label": "Event",
         "name": "Lantern-4 imagery check of the Karsk yard",
-        "supporting_sentences": [
-            "We were able to confirm the receipt by matching containers visible in "
-            "Lantern-4 imagery from 12 February 2024."
-        ],
+        "supporting_sentences": [IMAGERY],
         "date": "2024-02-12",
         "place": "Karsk",
     },
@@ -512,7 +563,7 @@ SHIPMENT_LINKS = [
         "to_id": "e5",
         "date_from": "2024-02",
         "date_precision": "month",
-        "supporting_sentences": ["The shipment arrived in Karsk in February 2024."],
+        "supporting_sentences": [ARRIVAL],
     },
     {
         "type": "PARTICIPATED_IN",
@@ -520,17 +571,14 @@ SHIPMENT_LINKS = [
         "to_id": "e6",
         "date_from": "2024-02-12",
         "date_precision": "day",
-        "supporting_sentences": [
-            "We were able to confirm the receipt by matching containers visible in "
-            "Lantern-4 imagery from 12 February 2024."
-        ],
+        "supporting_sentences": [IMAGERY],
     },
     {
         "type": "LOCATED_IN",
         "from_id": "e1",
         "to_id": "e2",
         "date_precision": "unknown",
-        "supporting_sentences": ["A second sentence."],
+        "supporting_sentences": [ROUTE],
     },
 ]
 
@@ -613,16 +661,22 @@ def test_two_pass_events_extract_makes_two_calls_and_links_participants_to_event
     )
     assert [e.id for e in entities.entities] == [f"e{n}" for n in range(1, 7)]
     by_id = {e.id: e for e in entities.entities}
+    text = _article_text("shipment_trace")
+    assert chars == len(text)
+    arrival, arrival_start, arrival_end = _span(text, ARRIVAL)
+    assert "\n" in arrival  # the Document text's slice, not the Model's line
     event = by_id["e5"]
     assert event == ProposedEntity(
         id="e5",
         label="Event",
         name="Arrival of the shipment in Karsk",
-        sentence="The shipment arrived in Karsk in February 2024.",
+        sentence=arrival,
+        sentence_start=arrival_start,
+        sentence_end=arrival_end,
         date="2024-02",
         place="Karsk",
     )
-    assert entities.dropped == 0
+    assert (entities.dropped, entities.sentences_dropped) == (0, 0)
     assert by_id["e2"].date is None and by_id["e2"].place is None
     participants = [
         r for r in relationships.relationships if r.type == "PARTICIPATED_IN"
@@ -637,9 +691,11 @@ def test_two_pass_events_extract_makes_two_calls_and_links_participants_to_event
         date_from="2024-02",
         date_to=None,
         date_precision="month",
-        sentence="The shipment arrived in Karsk in February 2024.",
+        sentence=arrival,
+        sentence_start=arrival_start,
+        sentence_end=arrival_end,
     )
-    assert relationships.dropped == 0
+    assert (relationships.dropped, relationships.sentences_dropped) == (0, 0)
     assert relationships.model == spec.default_model
 
 
@@ -678,7 +734,7 @@ def test_two_pass_events_the_text_file_is_the_document_text(
 ) -> None:
     """`--text-file` reads the file, fetches nothing, and reports a Document
     with no URL and no title."""
-    text = "The shipment arrived in Karsk in February 2024. " * 20
+    text = _article_text("shipment_trace")
     path = tmp_path / "body.txt"
     path.write_text(text, encoding="utf-8")
     network = _shipment_network()
@@ -1054,3 +1110,263 @@ def test_malformed_item_reaches_stderr_with_no_logging_set_up() -> None:
     assert b"Garble" not in result.stderr
     assert "\u0436".encode() not in result.stderr
     assert result.stdout == b""
+
+
+# ---- verbatim sentences (ISC-44) ----
+
+
+def test_verbatim_fabricated_sentences_are_dropped_and_counted_in_both_passes(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A Proposal whose only sentence is not in the Document text is dropped, a
+    fabricated second sentence is dropped from a Proposal that stays, and each
+    message counts both. The ids stay contiguous and Pass 2 never sees the
+    dropped entity."""
+    phantom = {
+        "label": "Person",
+        "name": "Mr Phantom",
+        "supporting_sentences": ["Mr Phantom met a Tidemark reporter in Karsk."],
+    }
+    tidemark = {
+        **SHIPMENT_ENTITIES[2],
+        "supporting_sentences": [REPORTER, "Tidemark declined."],
+    }
+    entities = [SHIPMENT_ENTITIES[0], phantom, SHIPMENT_ENTITIES[1], tidemark]
+    entities += SHIPMENT_ENTITIES[3:]
+    invented = {
+        **SHIPMENT_LINKS[0],
+        "supporting_sentences": ["They met in a car park."],
+    }
+    half_true = {
+        **SHIPMENT_LINKS[2],
+        "type": "OWNS",
+        "supporting_sentences": ["Karsk owns the route.", ROUTE],
+    }
+    network = Network(
+        _json_reply(entities=entities),
+        _json_reply(relationships=[*SHIPMENT_LINKS, invented, half_true]),
+        page="shipment_trace",
+    )
+
+    code, messages = _extract_command(
+        network, capsys, monkeypatch, "--url", SHIPMENT_URL
+    )
+
+    assert code == 0
+    found = next(m for m in messages if isinstance(m, Entities))
+    assert [e.id for e in found.entities] == [f"e{n}" for n in range(1, 7)]
+    assert "Mr Phantom" not in [e.name for e in found.entities]
+    assert (found.dropped, found.sentences_dropped) == (1, 2)
+    text = _article_text("shipment_trace")
+    assert found.entities[2].sentence == _span(text, REPORTER)[0]
+    pass2 = orjson.loads(network.chat_requests[1].content)["messages"][1]["content"]
+    assert "Phantom" not in pass2
+    final = messages[-1]
+    assert isinstance(final, Relationships)
+    assert len(final.relationships) == 4
+    assert (final.dropped, final.sentences_dropped) == (1, 2)
+    assert final.relationships[-1].sentence == _span(text, ROUTE)[0]
+
+
+def test_verbatim_curly_quote_and_whitespace_variants_of_a_real_sentence_match(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The Model wrote curly quotes and extra spaces; the Document text has
+    straight quotes and line breaks. The sentence is found and what is emitted
+    is the Document text's version."""
+    flagged = (
+        "The shipment was flagged by Western export-control authorities in late "
+        "2023 after a containerised shipping manifest, reviewed by Tidemark,  "
+        "listed the cargo as “industrial spare parts” — a category "
+        "historically used to disguise high-precision items subject to sanctions."
+    )
+    network = Network(
+        _json_reply(
+            entities=[
+                {
+                    "label": "Organization",
+                    "name": "Tidemark",
+                    "supporting_sentences": [flagged],
+                }
+            ]
+        ),
+        _json_reply(relationships=[]),
+        page="shipment_trace",
+    )
+
+    code, messages = _extract_command(
+        network, capsys, monkeypatch, "--url", SHIPMENT_URL
+    )
+
+    assert code == 0
+    found = next(m for m in messages if isinstance(m, Entities))
+    (entity,) = found.entities
+    assert (found.dropped, found.sentences_dropped) == (0, 0)
+    assert '"industrial spare parts"' in entity.sentence and "“" not in entity.sentence
+    assert "\n" in entity.sentence
+    assert (
+        entity.sentence
+        == _article_text("shipment_trace")[entity.sentence_start : entity.sentence_end]
+    )
+
+
+def test_verbatim_test_extraction_drops_fabricated_sentences_too(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The old command shares the check, so it reports the drops as well."""
+    network = Network(
+        _json_reply(
+            entities=[
+                {
+                    "label": "Person",
+                    "name": "Mr Phantom",
+                    "supporting_sentences": ["Mr Phantom signed the order."],
+                },
+                {
+                    "label": "Organization",
+                    "name": "The Pennick Review",
+                    "supporting_sentences": [PENNICK, "Nobody said this."],
+                },
+            ]
+        ),
+        page="campaign_documents",
+    )
+
+    code, messages = _extract(network, capsys, monkeypatch)
+
+    final = messages[-1]
+    assert code == 0 and isinstance(final, Entities)
+    assert [(e.id, e.name) for e in final.entities] == [("e1", "The Pennick Review")]
+    assert (final.dropped, final.sentences_dropped) == (1, 2)
+
+
+# ---- offsets (ISC-44.1) ----
+
+CYRILLIC_TEXT = (
+    "Расследование: компания «Долмен Фрейт» и порт Карск\r\n\r\n"
+    "Директор Ада Верин сказала: “Мы ничего не знаем”, и 😀 ушла из   зала.\r\n"
+    "Груз прибыл в Карск 12 февраля 2024 года.  Компания   «Долмен Фрейт» "
+    "отправила его раньше."
+)
+SAID = 'Директор Ада Верин сказала: "Мы ничего не знаем", и 😀 ушла из зала.'
+ARRIVED = "Груз прибыл в Карск 12 февраля 2024 года."
+SENT_EARLIER = "Компания «Долмен Фрейт» отправила его раньше."
+
+
+def test_offsets_in_the_messages_slice_the_document_text_back(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """From a text file with Cyrillic names, curly quotes, an emoji and CRLF line
+    ends, every entity and relationship sentence is the slice of the file's own
+    characters between its offsets, and `chars` counts those characters."""
+    path = tmp_path / "body.txt"
+    path.write_bytes(CYRILLIC_TEXT.encode("utf-8"))
+    text = path.read_bytes().decode("utf-8")
+    assert "\r\n" in text
+    network = Network(
+        _json_reply(
+            entities=[
+                {
+                    "label": "Person",
+                    "name": "Ада Верин",
+                    "supporting_sentences": [SAID],
+                },
+                {
+                    "label": "Organization",
+                    "name": "Долмен Фрейт",
+                    "supporting_sentences": [SENT_EARLIER],
+                },
+                {
+                    "label": "Location",
+                    "name": "Карск",
+                    "supporting_sentences": [ARRIVED],
+                },
+                {
+                    "label": "Event",
+                    "name": "Прибытие груза в Карск",
+                    "supporting_sentences": [ARRIVED],
+                    "date": "2024-02-12",
+                    "place": "Карск",
+                },
+            ]
+        ),
+        _json_reply(
+            relationships=[
+                {
+                    "type": "PARTICIPATED_IN",
+                    "from_id": "e2",
+                    "to_id": "e4",
+                    "date_precision": "unknown",
+                    "supporting_sentences": [SENT_EARLIER],
+                },
+                {
+                    "type": "ASSOCIATED_WITH",
+                    "from_id": "e1",
+                    "to_id": "e2",
+                    "date_precision": "unknown",
+                    "supporting_sentences": [SAID],
+                },
+            ]
+        ),
+    )
+
+    code, messages = _extract_command(
+        network, capsys, monkeypatch, "--text-file", str(path)
+    )
+
+    assert code == 0
+    found = next(m for m in messages if isinstance(m, Entities))
+    final = messages[-1]
+    assert isinstance(final, Relationships)
+    assert found.document.chars == len(text)
+    assert (found.dropped, found.sentences_dropped) == (0, 0)
+    assert (final.dropped, final.sentences_dropped) == (0, 0)
+    spans: list[ProposedEntity | ProposedRelationship] = [
+        *found.entities,
+        *final.relationships,
+    ]
+    assert len(spans) == 6
+    for item in spans:
+        assert text[item.sentence_start : item.sentence_end] == item.sentence
+    said = found.entities[0]
+    assert said.sentence == (
+        "Директор Ада Верин сказала: “Мы ничего не знаем”, и 😀 ушла из   зала."
+    )
+    assert said.sentence_start == text.index("Директор")
+    assert said.sentence_end == said.sentence_start + len(said.sentence)
+    assert final.relationships[0].sentence == (
+        "Компания   «Долмен Фрейт» отправила его раньше."
+    )
+
+
+def test_offsets_count_code_points_in_the_messages(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """An astral-plane emoji before the sentence moves its offset by one."""
+    path = tmp_path / "body.txt"
+    path.write_text("😀 Ада Верин подписала приказ.", encoding="utf-8")
+    network = Network(
+        _json_reply(
+            entities=[
+                {
+                    "label": "Person",
+                    "name": "Ада Верин",
+                    "supporting_sentences": ["Ада Верин подписала приказ."],
+                }
+            ]
+        ),
+        _json_reply(relationships=[]),
+    )
+
+    _, messages = _extract_command(
+        network, capsys, monkeypatch, "--text-file", str(path)
+    )
+
+    found = next(m for m in messages if isinstance(m, Entities))
+    (entity,) = found.entities
+    assert (entity.sentence_start, entity.sentence_end) == (2, 29)
+    assert found.document.chars == 29

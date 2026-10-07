@@ -9,10 +9,10 @@ between them, including who took part in each Event. There is no third pass
 import datetime
 import logging
 import re
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from importlib.resources import files
-from typing import Annotated, Any, Final, Literal, Self
+from typing import Annotated, Any, Final, Literal, Protocol, Self
 
 import orjson
 from pydantic import (
@@ -357,15 +357,137 @@ def parse_pass2(raw: str) -> Pass2Response:
     return Pass2Response(relationships, dropped)
 
 
-def stamp_ids(response: Pass1Response) -> dict[str, Pass1EntityProposal]:
+_QUOTES: Final = str.maketrans(
+    {"\u2018": "'", "\u2019": "'", "\u201c": '"', "\u201d": '"'}
+)
+
+
+def _normalise(text: str) -> tuple[str, list[int], list[int]]:
+    """``text`` with curly quotes made straight and each run of whitespace made
+    one space, and for each character of that, where it starts and ends in
+    ``text``."""
+    chars: list[str] = []
+    starts: list[int] = []
+    ends: list[int] = []
+    i = 0
+    while i < len(text):
+        j = i + 1
+        if text[i].isspace():
+            while j < len(text) and text[j].isspace():
+                j += 1
+            chars.append(" ")
+        else:
+            chars.append(text[i].translate(_QUOTES))
+        starts.append(i)
+        ends.append(j)
+        i = j
+    return "".join(chars), starts, ends
+
+
+@dataclass(frozen=True, slots=True)
+class Sentence:
+    """A supporting sentence found in the Document text: ``text`` is the
+    Document text's own slice ``document[start:end]``. The offsets count Unicode
+    code points, and ``end`` is exclusive."""
+
+    text: str
+    start: int
+    end: int
+
+
+class DocumentText:
+    """The Document text, indexed so a sentence the Model quoted can be found in
+    it and located in the original text.
+
+    A sentence matches when it is the same once curly quotes are made straight
+    and each run of whitespace is made one space. Nothing else may differ.
+    """
+
+    def __init__(self, text: str) -> None:
+        self.text = text
+        self._normal, self._starts, self._ends = _normalise(text)
+
+    def find(self, sentence: str) -> Sentence | None:
+        """The first place ``sentence`` occurs, or None if it does not."""
+        wanted = _normalise(sentence)[0].strip()
+        at = self._normal.find(wanted) if wanted else -1
+        if at == -1:
+            return None
+        start = self._starts[at]
+        end = self._ends[at + len(wanted) - 1]
+        return Sentence(self.text[start:end], start, end)
+
+
+class _Supported(Protocol):
+    @property
+    def supporting_sentences(self) -> list[str]: ...
+
+
+@dataclass(frozen=True, slots=True)
+class Grounded[Proposal: _Supported]:
+    """A Proposal and the supporting sentences of it found in the Document text,
+    at least one, in the Model's order."""
+
+    proposal: Proposal
+    sentences: list[Sentence]
+
+
+@dataclass(frozen=True, slots=True)
+class Grounding[Proposal: _Supported]:
+    """The Proposals that kept a supporting sentence, how many were left with
+    none and dropped, and how many sentences were not found."""
+
+    kept: list[Grounded[Proposal]]
+    dropped: int
+    sentences_dropped: int
+
+
+def ground[Proposal: _Supported](
+    proposals: Sequence[Proposal], document: DocumentText, what: str
+) -> Grounding[Proposal]:
+    """Check each supporting sentence of ``proposals`` against ``document``.
+
+    A sentence that is not found is dropped, and a Proposal left with no
+    sentence is dropped. Each drop is logged by its kind, never by its content.
+    ``what`` names the Proposals in the log.
+    """
+    kept: list[Grounded[Proposal]] = []
+    dropped = sentences_dropped = 0
+    for proposal in proposals:
+        found: list[Sentence] = []
+        for sentence in proposal.supporting_sentences:
+            located = document.find(sentence)
+            if located is None:
+                sentences_dropped += 1
+                _LOGGER.error(
+                    "Dropped %s sentence: not found in the Document text", what
+                )
+            else:
+                found.append(located)
+        if found:
+            kept.append(Grounded(proposal, found))
+        else:
+            dropped += 1
+            _LOGGER.error(
+                "Dropped %s: none of its supporting sentences was found in the "
+                "Document text",
+                what,
+            )
+    return Grounding(kept, dropped, sentences_dropped)
+
+
+def stamp_ids(
+    entities: Sequence[Grounded[Pass1EntityProposal]],
+) -> dict[str, Grounded[Pass1EntityProposal]]:
     """The Pass 1 entities keyed by the short ids ``e1``, ``e2``, ... in the
     Model's order. The worker stamps them; the Model never makes one up."""
-    return {f"e{n}": entity for n, entity in enumerate(response.entities, start=1)}
+    return {f"e{n}": entity for n, entity in enumerate(entities, start=1)}
 
 
-def _listed(entity_id: str, entity: Pass1EntityProposal) -> dict[str, str]:
+def _listed(entity_id: str, grounded: Grounded[Pass1EntityProposal]) -> dict[str, str]:
     """What Pass 2 is told about an entity: its id, kind and name, and an
     Event's date and place when it has them."""
+    entity = grounded.proposal
     listed = {"id": entity_id, "label": entity.label, "name": entity.name}
     if entity.date is not None:
         listed["date"] = entity.date
@@ -375,7 +497,7 @@ def _listed(entity_id: str, entity: Pass1EntityProposal) -> dict[str, str]:
 
 
 def pass2_messages(
-    body: str, entities: Mapping[str, Pass1EntityProposal]
+    body: str, entities: Mapping[str, Grounded[Pass1EntityProposal]]
 ) -> list[dict[str, str]]:
     """The chat messages for one Pass 2 call over the Document text ``body`` and
     the Pass 1 ``entities`` keyed by their ids."""
@@ -393,7 +515,8 @@ def pass2_messages(
 
 
 def _resolves(
-    link: Pass2RelationshipProposal, entities: Mapping[str, Pass1EntityProposal]
+    link: Pass2RelationshipProposal,
+    entities: Mapping[str, Grounded[Pass1EntityProposal]],
 ) -> bool:
     """Whether both ends of ``link`` are known entities and, for a
     ``PARTICIPATED_IN``, it goes from a non-Event to an Event."""
@@ -401,16 +524,16 @@ def _resolves(
     if source is None or target is None:
         return False
     if link.type == "PARTICIPATED_IN":
-        return target.label == "Event" and source.label != "Event"
+        return target.proposal.label == "Event" and source.proposal.label != "Event"
     return True
 
 
 def known_relationships(
-    response: Pass2Response, entities: Mapping[str, Pass1EntityProposal]
-) -> tuple[list[Pass2RelationshipProposal], int]:
-    """The Proposals in ``response`` that resolve against ``entities`` (keyed by
-    their ids), and how many items of the reply were dropped in all: the
-    malformed ones, those naming an id Pass 1 never gave, and participant links
-    that do not go from a non-Event to an Event."""
-    kept = [link for link in response.relationships if _resolves(link, entities)]
-    return kept, response.dropped + len(response.relationships) - len(kept)
+    links: Sequence[Grounded[Pass2RelationshipProposal]],
+    entities: Mapping[str, Grounded[Pass1EntityProposal]],
+) -> tuple[list[Grounded[Pass2RelationshipProposal]], int]:
+    """The ``links`` that resolve against ``entities`` (keyed by their ids), and
+    how many did not: those naming an id Pass 1 never gave, and participant
+    links that do not go from a non-Event to an Event."""
+    kept = [link for link in links if _resolves(link.proposal, entities)]
+    return kept, len(links) - len(kept)

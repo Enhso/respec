@@ -82,15 +82,19 @@ class ProposedEntity(_Message):
     """One entity Proposal: its id, kind, name and first supporting sentence.
 
     ``id`` is the short id the worker stamped (``e1``, ``e2``, ...); Pass 2
-    refers to the entity by it. ``date`` (ISO 8601, which may stop at the year
-    or the month) and ``place`` belong to an Event and are null for every other
-    kind, and for an Event whose article does not say.
+    refers to the entity by it. ``sentence`` is the Document text's own slice
+    ``text[sentence_start:sentence_end]``; the offsets count Unicode code
+    points, with the end exclusive. ``date`` (ISO 8601, which may stop at the
+    year or the month) and ``place`` belong to an Event and are null for every
+    other kind, and for an Event whose article does not say.
     """
 
     id: str
     label: str
     name: str
     sentence: str
+    sentence_start: int
+    sentence_end: int
     date: str | None = None
     place: str | None = None
 
@@ -99,8 +103,10 @@ class Entities(_Message):
     """The entity Proposals ``model`` made. It ends a ``test-extraction`` run;
     in an ``extract`` run it follows Pass 1 and ``Relationships`` ends the run.
 
-    ``dropped`` counts the items of the Model's reply that were left out for
-    being malformed.
+    ``dropped`` counts the Proposals left out: items of the Model's reply that
+    were malformed, and those with no supporting sentence found in the Document
+    text. ``sentences_dropped`` counts the supporting sentences that were not
+    found in it.
     """
 
     kind: Literal["entities"] = "entities"
@@ -109,6 +115,7 @@ class Entities(_Message):
     document: DocumentSummary
     entities: list[ProposedEntity]
     dropped: int
+    sentences_dropped: int
 
 
 class ProposedRelationship(_Message):
@@ -121,15 +128,20 @@ class ProposedRelationship(_Message):
     date_to: str | None
     date_precision: str
     sentence: str
-    """The Proposal's first supporting sentence."""
+    """The Proposal's first supporting sentence: the Document text's own slice
+    ``text[sentence_start:sentence_end]``, in code points."""
+    sentence_start: int
+    sentence_end: int
 
 
 class Relationships(_Message):
     """An ``extract`` run succeeded: the relationship Proposals ``model`` made.
 
     ``dropped`` counts the items of the Model's reply that were left out: those
-    that were malformed, those that named an id Pass 1 never gave, and
-    participant links that did not go from an entity to an Event.
+    that were malformed, those with no supporting sentence found in the Document
+    text, those that named an id Pass 1 never gave, and participant links that
+    did not go from an entity to an Event. ``sentences_dropped`` counts the
+    supporting sentences that were not found in the Document text.
     """
 
     kind: Literal["relationships"] = "relationships"
@@ -137,6 +149,7 @@ class Relationships(_Message):
     model: str
     relationships: list[ProposedRelationship]
     dropped: int
+    sentences_dropped: int
 
 
 class Failed(_Message):

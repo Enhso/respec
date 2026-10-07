@@ -1,1 +1,1 @@
-{"kind": "entities", "provider": "openrouter", "model": "example-lab/example-model:free", "document": {"url": "https://news.example/articles/43", "title": null, "chars": 1204}, "entities": [], "dropped": 0}
+{"kind": "entities", "provider": "openrouter", "model": "example-lab/example-model:free", "document": {"url": "https://news.example/articles/43", "title": null, "chars": 1204}, "entities": [], "dropped": 0, "sentences_dropped": 0}

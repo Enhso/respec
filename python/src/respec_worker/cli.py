@@ -14,7 +14,10 @@ from respec_worker.client import ChatFailure, chat, chat_with_retries
 from respec_worker.extraction import (
     PASS1_MAX_TOKENS,
     BadOutput,
+    DocumentText,
+    Grounded,
     Pass1EntityProposal,
+    ground,
     known_relationships,
     parse_pass1,
     parse_pass2,
@@ -144,6 +147,7 @@ def run_test_extraction(
     except BadOutput as failure:
         emit(Failed(provider=provider, reason="bad_output", message=failure.message))
         return 1
+    grounding = ground(response.entities, DocumentText(article.body), "entity")
     emit(
         Entities(
             provider=provider,
@@ -153,26 +157,29 @@ def run_test_extraction(
                 title=article.title or None,
                 chars=len(article.body),
             ),
-            entities=_proposed_entities(stamp_ids(response)),
-            dropped=response.dropped,
+            entities=_proposed_entities(stamp_ids(grounding.kept)),
+            dropped=response.dropped + grounding.dropped,
+            sentences_dropped=grounding.sentences_dropped,
         )
     )
     return 0
 
 
 def _proposed_entities(
-    entities: Mapping[str, Pass1EntityProposal],
+    entities: Mapping[str, Grounded[Pass1EntityProposal]],
 ) -> list[ProposedEntity]:
     return [
         ProposedEntity(
             id=entity_id,
-            label=entity.label,
-            name=entity.name,
-            sentence=entity.supporting_sentences[0],
-            date=entity.date,
-            place=entity.place,
+            label=grounded.proposal.label,
+            name=grounded.proposal.name,
+            sentence=grounded.sentences[0].text,
+            sentence_start=grounded.sentences[0].start,
+            sentence_end=grounded.sentences[0].end,
+            date=grounded.proposal.date,
+            place=grounded.proposal.place,
         )
-        for entity_id, entity in entities.items()
+        for entity_id, grounded in entities.items()
     ]
 
 
@@ -180,7 +187,9 @@ def _read_text_file(provider: Provider, path: Path) -> str | None:
     """The Document text in the file at ``path``, or None after emitting a
     ``failed`` message that says the file is unreadable or empty."""
     try:
-        text = path.read_text(encoding="utf-8")
+        # Decoded from bytes so that line ends stay as they are in the file and
+        # the offsets of a sentence count the file's own characters.
+        text = path.read_bytes().decode("utf-8")
     except (OSError, ValueError):
         emit(
             Failed(
@@ -276,6 +285,7 @@ def run_extract(
             sleep=sleep,
         )
 
+    document = DocumentText(body)
     try:
         reply = ask(
             1,
@@ -283,14 +293,16 @@ def run_extract(
             pass1_messages(body),
         )
         pass1 = parse_pass1(reply)
-        entities = stamp_ids(pass1)
+        grounded_entities = ground(pass1.entities, document, "entity")
+        entities = stamp_ids(grounded_entities.kept)
         emit(
             Entities(
                 provider=provider,
                 model=spec.default_model,
                 document=DocumentSummary(url=location, title=title, chars=len(body)),
                 entities=_proposed_entities(entities),
-                dropped=pass1.dropped,
+                dropped=pass1.dropped + grounded_entities.dropped,
+                sentences_dropped=grounded_entities.sentences_dropped,
             )
         )
         reply = ask(
@@ -298,7 +310,9 @@ def run_extract(
             f"calling {spec.default_model} for relationships",
             pass2_messages(body, entities),
         )
-        links, dropped = known_relationships(parse_pass2(reply), entities)
+        pass2 = parse_pass2(reply)
+        grounded_links = ground(pass2.relationships, document, "relationship")
+        links, unresolved = known_relationships(grounded_links.kept, entities)
     except ChatFailure as failure:
         emit(Failed(provider=provider, reason=failure.reason, message=failure.message))
         return 1
@@ -311,17 +325,20 @@ def run_extract(
             model=spec.default_model,
             relationships=[
                 ProposedRelationship(
-                    type=link.type,
-                    from_id=link.from_id,
-                    to_id=link.to_id,
-                    date_from=link.date_from,
-                    date_to=link.date_to,
-                    date_precision=link.date_precision,
-                    sentence=link.supporting_sentences[0],
+                    type=link.proposal.type,
+                    from_id=link.proposal.from_id,
+                    to_id=link.proposal.to_id,
+                    date_from=link.proposal.date_from,
+                    date_to=link.proposal.date_to,
+                    date_precision=link.proposal.date_precision,
+                    sentence=link.sentences[0].text,
+                    sentence_start=link.sentences[0].start,
+                    sentence_end=link.sentences[0].end,
                 )
                 for link in links
             ],
-            dropped=dropped,
+            dropped=pass2.dropped + grounded_links.dropped + unresolved,
+            sentences_dropped=grounded_links.sentences_dropped,
         )
     )
     return 0
