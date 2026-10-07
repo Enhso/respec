@@ -3,7 +3,7 @@ task: "Respec: rebuild Specter local-first and prove the loop"
 slug: 20261001-respec
 project: respec
 phase: climbing
-progress: 10/66
+progress: 11/66
 started: 2026-10-01T19:12:36Z
 updated: 2026-10-07T00:00:00Z
 principal_stated_goal: "we'll build a new fork of it keeping only essential and reusable items (if any) and start from scratch"
@@ -128,7 +128,7 @@ Why: one pasted article travels the whole pipeline on a free model before anythi
 - [ ] ISC-17: The Rust and Python test suites both validate the same contract fixtures in `contracts/fixtures/`.
 - [ ] ISC-52: When the selected model still fails after retries, the job falls through an ordered list of fallback models across providers.
 - [ ] ISC-53: Every failure class (auth, daily quota, rate limit, model gone, truncated, network) maps to a plain-language message with a next step.
-- [ ] ISC-54: Anti: no request to Gemini carries prompt-caching directives (Specter's cached-content calls hit a zero quota).
+- [x] ISC-54: Anti: no request to Gemini carries prompt-caching directives (Specter's cached-content calls hit a zero quota).
 - [ ] ISC-55: Jobs run one at a time, in submission order.
 - [ ] ISC-61: Extraction makes two passes per article: pass 1 proposes entities, Events included (with date and place), and pass 2 proposes relationships, including participants to Events. There is no third pass.
 
@@ -392,3 +392,4 @@ Why: measure quality on real articles before trusting or tuning prompts, the cal
 - ISC-47: the retargeted probe returned 404 at `b229646` and 403 after the build. `cargo test foreign_origin_rejected` also rejects a missing and a `null` Origin. Removing either check turns its test red.
 - ISC-59: `curl -s localhost:7377/api/settings` returned 404 at `b229646`. After saving a fake key it returned only its last four (`wxyz`). The full key had 0 hits in the server log, and `keys.json` was mode 600 in a 700 directory.
 - ISC-37: `uv run pytest -k provider_hosts` selected no tests at `b6acc73`, so pytest exited 5. After the build it passes 4. Pointing Gemini's URL at OpenRouter's host turned it red. Live, both Providers answered through `POST /api/test-call`, and their keys had 0 hits in the server log.
+- ISC-54: `uv run pytest -k gemini_no_cache` selected no tests at `5b2c172` (exit 5) and passes 2 after the build. Planting `cachedContent` in the payload, and separately a `cached_content` key nested two levels deep, turned both tests red.
