@@ -8,6 +8,8 @@ Local-first OSINT graph: paste an article, review machine-proposed entities and 
 
 `PLAN.md` orders the sessions. Its Now section says what is next: read it first and rewrite it at the end of every session.
 
+`docs/brief.md` is the defence brief: what Respec is, why it is built this way, and what the evidence says. Rewrite it at the end of every session alongside PLAN.md, following `docs/agents/brief.md`.
+
 ## The split
 
 - **Rust owns state.** It is the only process that opens the mnestic store. It owns the domain invariants (Knowledge vs Hypothesis, promotion), the HTTP API, the job runner, and serving the built web UI from the same origin.
