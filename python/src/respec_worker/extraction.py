@@ -9,6 +9,7 @@ between them, including who took part in each Event. There is no third pass
 import datetime
 import logging
 import re
+import unicodedata
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from importlib.resources import files
@@ -353,11 +354,32 @@ _QUOTES: Final = str.maketrans(
     {"\u2018": "'", "\u2019": "'", "\u201c": '"', "\u201d": '"'}
 )
 
+_END_ELLIPSES: Final = re.compile(r"^\s*(?:\.\.\.|\u2026)|(?:\.\.\.|\u2026)\s*$")
+"""An ellipsis at the start or end of a sentence, where a Model marks a cut."""
+
+
+def _fold(ch: str) -> str:
+    """``ch`` with a curly quote made straight and a letter made lower case,
+    still one character."""
+    straight = ch.translate(_QUOTES)
+    lower = straight.lower()
+    return lower if len(lower) == 1 else straight
+
+
+def _in_word(ch: str) -> bool:
+    """Whether ``ch`` is a letter, a digit or a mark that combines with one."""
+    return ch.isalnum() or unicodedata.combining(ch) != 0
+
 
 def _normalise(text: str) -> tuple[str, list[int], list[int]]:
-    """``text`` with curly quotes made straight and each run of whitespace made
-    one space, and for each character of that, where it starts and ends in
-    ``text``."""
+    """``text`` folded for matching, and for each character of that, where it
+    starts and ends in ``text``.
+
+    Curly quotes are made straight and letters lower case. A run of whitespace
+    between two letters or digits becomes one space, and any other whitespace
+    is dropped: a web page that put a link on its own line leaves a space
+    before the comma that follows it, and a Model's copy does not.
+    """
     chars: list[str] = []
     starts: list[int] = []
     ends: list[int] = []
@@ -367,11 +389,14 @@ def _normalise(text: str) -> tuple[str, list[int], list[int]]:
         if text[i].isspace():
             while j < len(text) and text[j].isspace():
                 j += 1
-            chars.append(" ")
+            if chars and _in_word(chars[-1]) and j < len(text) and _in_word(text[j]):
+                chars.append(" ")
+                starts.append(i)
+                ends.append(j)
         else:
-            chars.append(text[i].translate(_QUOTES))
-        starts.append(i)
-        ends.append(j)
+            chars.append(_fold(text[i]))
+            starts.append(i)
+            ends.append(j)
         i = j
     return "".join(chars), starts, ends
 
@@ -391,8 +416,11 @@ class DocumentText:
     """The Document text, indexed so a sentence the Model quoted can be found in
     it and located in the original text.
 
-    A sentence matches when it is the same once curly quotes are made straight
-    and each run of whitespace is made one space. Nothing else may differ.
+    A sentence matches when it is the same once curly quotes are made straight,
+    letters made lower case, whitespace counted only between two letters or
+    digits, and an ellipsis at either end of the Model's sentence dropped.
+    Every word, every punctuation mark and every space between two words must
+    still be there.
     """
 
     def __init__(self, text: str) -> None:
@@ -401,7 +429,7 @@ class DocumentText:
 
     def find(self, sentence: str) -> Sentence | None:
         """The first place ``sentence`` occurs, or None if it does not."""
-        wanted = _normalise(sentence)[0].strip()
+        wanted = _normalise(_END_ELLIPSES.sub("", sentence))[0]
         at = self._normal.find(wanted) if wanted else -1
         if at == -1:
             return None

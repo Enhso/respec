@@ -16,6 +16,7 @@ The title comes from ``og:title``, then ``<title>``. The date comes from
 """
 
 import logging
+import re
 from dataclasses import dataclass
 from datetime import date, datetime
 from typing import Final, Literal
@@ -23,6 +24,7 @@ from typing import Final, Literal
 import httpx
 import trafilatura
 from bs4 import BeautifulSoup, Tag
+from bs4.element import NavigableString
 
 _FALLBACK_THRESHOLD_CHARS: Final = 1024
 _BODY_FLOOR_CHARS: Final = 256
@@ -38,6 +40,37 @@ _BODY_SELECTORS: Final = (
     "div.post-content",
     "div.content",
 )
+
+_BLOCK_TAGS: Final = (
+    "address",
+    "article",
+    "aside",
+    "blockquote",
+    "dd",
+    "div",
+    "dl",
+    "dt",
+    "figcaption",
+    "figure",
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "h5",
+    "h6",
+    "li",
+    "ol",
+    "p",
+    "pre",
+    "section",
+    "table",
+    "td",
+    "th",
+    "tr",
+    "ul",
+)
+"""Elements that start a new line in the Document text; all others are inline
+and join the text around them as written."""
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -109,8 +142,29 @@ def _extract_published_date(soup: BeautifulSoup) -> date | None:
         return None
 
 
+def _block_text(root: Tag) -> str:
+    """The text of ``root`` with one line per block element or ``<br>``.
+
+    Inline elements such as links and emphasis join the text around them as
+    written, so "<a>LLC Varnas Trade</a>, and" stays "LLC Varnas Trade, and". A line
+    break in the page's source is only whitespace. Runs of whitespace inside a
+    line become one space, and empty lines are dropped.
+    """
+    for node in root.find_all(string=True):
+        if type(node) is NavigableString:  # not a comment or a CDATA section
+            node.replace_with(re.sub(r"\s+", " ", node))
+    for br in root.find_all("br"):
+        br.replace_with("\n")
+    for block in root.find_all(_BLOCK_TAGS):
+        block.insert_before("\n")
+        block.insert_after("\n")
+    lines = (" ".join(line.split()) for line in root.get_text().splitlines())
+    return "\n".join(line for line in lines if line)
+
+
 def _extract_body_bs4(html: str) -> str:
-    """Join the text of the first block the selector chain matches.
+    """The text of the first block the selector chain matches, a line per
+    paragraph.
 
     Scripts, styles and page chrome are dropped first, so inline JavaScript
     does not reach the Model. Returns an empty string when nothing matches.
@@ -122,7 +176,7 @@ def _extract_body_bs4(html: str) -> str:
         match = soup.select_one(selector)
         if match is None:
             continue
-        text = match.get_text(separator="\n", strip=True)
+        text = _block_text(match)
         if text:
             return text
     return ""

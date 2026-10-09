@@ -2,7 +2,8 @@
 a found one is emitted as the Document text's own slice with its offsets.
 
 Tests with `verbatim` in the name are ISC-44 (a fabricated sentence is dropped
-and counted; quote and whitespace variants of a real one match). Tests with
+and counted; variants of a real one in quotes, case, whitespace or an ellipsis at
+an end match). Tests with
 `offsets` are ISC-44.1 (the offsets slice the Document text back to the sentence).
 """
 
@@ -142,32 +143,112 @@ def test_verbatim_the_emitted_sentence_is_the_document_texts_own_not_the_models(
 
 
 @pytest.mark.parametrize(
+    ("text", "sentence", "found"),
+    [
+        (
+            "Intro. The buyer was\nLLC Varnas Trade\n, and the order left. Outro.",
+            "The buyer was LLC Varnas Trade, and the order left.",
+            "The buyer was\nLLC Varnas Trade\n, and the order left.",
+        ),
+        (
+            "The firm ( Dolmen Freight ) paid.",
+            "The firm (Dolmen Freight) paid.",
+            "The firm ( Dolmen Freight ) paid.",
+        ),
+        (
+            "Dolmen Freight, and Karsk.",
+            "Dolmen Freight , and Karsk .",
+            "Dolmen Freight, and Karsk.",
+        ),
+        (
+            "Ada Verrin — a director — left.",
+            "Ada Verrin—a director—left.",
+            "Ada Verrin — a director — left.",
+        ),
+        (
+            "He said \u201c stop \u201d twice.",
+            'He said "stop" twice.',
+            "He said \u201c stop \u201d twice.",
+        ),
+    ],
+    ids=["link-on-its-own-line", "brackets", "model-added-spaces", "dashes", "quotes"],
+)
+def test_verbatim_whitespace_beside_punctuation_does_not_count(
+    text: str, sentence: str, found: str
+) -> None:
+    """Whitespace counts only between two letters or digits. A web page that
+    put a link on its own line, leaving a space before the comma after it,
+    still matches the Model's clean copy, and the Document text's own slice is
+    what is emitted."""
+    assert _grounded(text, sentence) == [found]
+
+
+def test_verbatim_letter_case_does_not_count() -> None:
+    """A Model that quoted a clause and capitalised its first word still
+    matches; the emitted sentence keeps the Document text's case."""
+    text = "Earlier, without the order, Ada Verrin left."
+
+    assert _grounded(text, "Without the order, Ada Verrin left.") == [
+        "without the order, Ada Verrin left."
+    ]
+
+
+@pytest.mark.parametrize(
+    ("sentence", "found"),
+    [
+        ("...Ada Verrin signed the order.", "Ada Verrin signed the order."),
+        ("\u2026 Ada Verrin signed the order.", "Ada Verrin signed the order."),
+        ("In March, after a delay...", "In March, after a delay"),
+        ("... after a delay \u2026", "after a delay"),
+    ],
+    ids=["leading", "leading-unicode", "trailing", "both-ends"],
+)
+def test_verbatim_an_ellipsis_at_either_end_is_dropped(
+    sentence: str, found: str
+) -> None:
+    """An ellipsis that marks a cut at either end of the Model's sentence is
+    dropped, and the rest must still be found."""
+    text = "In March, after a delay, Ada Verrin signed the order."
+
+    assert _grounded(text, sentence) == [found]
+
+
+@pytest.mark.parametrize(
     "sentence",
     [
-        "ada verrin signed the order in march.",
-        "Ada Verrin signed the order in March...",
+        "Ada Verrin signed ... in March.",
         "Ada Verrin signed the order—in March.",
+        "Ada Verrin, signed the order in March.",
+        "Ada Verrin signed the order in March!",
         "Ada Verrin signed order in March.",
         "Ada Verrin signed the order in March and left.",
         "Ada Verrin put her name to the order in March.",
         "AdaVerrin signed the order in March.",
+        "Ada Verrin signed the order in Mar ch.",
+        "...",
         "",
         "   \n\t",
     ],
     ids=[
-        "case",
-        "ellipsis",
+        "inner-ellipsis",
         "dash",
+        "extra-comma",
+        "other-punctuation",
         "missing-word",
         "extra-words",
         "paraphrase",
         "removed-space",
+        "added-space",
+        "only-ellipsis",
         "empty",
         "blank",
     ],
 )
-def test_verbatim_only_quotes_and_whitespace_may_differ(sentence: str) -> None:
-    """Case, punctuation, words and spacing inside a word all still count."""
+def test_verbatim_words_punctuation_and_spaces_between_words_still_count(
+    sentence: str,
+) -> None:
+    """Every word, every punctuation mark and every space between two letters
+    or digits must be in the Document text."""
     assert _grounded(ORDER, sentence) == []
 
 
@@ -272,6 +353,18 @@ def test_offsets_are_those_of_the_first_occurrence() -> None:
 
     assert found is not None
     assert (found.start, found.end) == (0, len("Ada Verrin signed."))
+
+
+def test_offsets_slice_back_a_sentence_matched_across_a_link_line_break() -> None:
+    """A sentence matched despite the space a link left before a comma is
+    sliced back exactly, line breaks included."""
+    text = "Intro.\nThe buyer was\nLLC Varnas Trade\n, and it paid.\nOutro."
+
+    found = DocumentText(text).find("The buyer was LLC Varnas Trade, and it paid.")
+
+    assert found is not None
+    assert text[found.start : found.end] == found.text
+    assert found.text == "The buyer was\nLLC Varnas Trade\n, and it paid."
 
 
 def test_offsets_are_given_for_every_sentence_of_a_proposal() -> None:

@@ -191,7 +191,7 @@ Why: measure quality on real articles before trusting or tuning prompts, the cal
 - [ ] ISC-43: Recall of labelled key entities is at least 0.8 on the eval set with the chosen free model. (after: ISC-42)
 - [ ] ISC-43.1: Recall of labelled key relationships is at least 0.6 on the eval set (provisional, re-set at the quality gate). (after: ISC-42)
 - [ ] ISC-62: Recall of labelled key events is at least 0.6 on the eval set. Below that, Events are dropped or a third pass returns, with a Decisions row either way. (after: ISC-42)
-- [x] ISC-44: Anti: a proposal whose sentence is not found in the document text, under one normalisation rule for quotes and whitespace, is dropped and counted, never staged.
+- [x] ISC-44: Anti: a proposal whose sentence is not found in the document text, under one matching rule (quotes, letter case, whitespace, and an ellipsis at either end), is dropped and counted, never staged.
 - [x] ISC-44.1: Every staged sentence is stored with its character offsets in the document text.
 
 ## Test Strategy
@@ -262,7 +262,7 @@ Why: measure quality on real articles before trusting or tuning prompts, the cal
 | ISC-43 | eval | key-entity recall across the eval set, 3 samples | ≥ 0.8 | `uv run python -m respec_worker.evals` | derived: prove-the-loop |
 | ISC-43.1 | eval | key-relationship recall across the eval set, 3 samples | >= 0.6 | `uv run python -m respec_worker.evals` | derived: prove-the-loop |
 | ISC-62 | eval | key-event recall across the eval set, 3 samples | >= 0.6 | `uv run python -m respec_worker.evals` | derived: prove-the-loop |
-| ISC-44 | bash | worker tests: fabricated sentence dropped; curly-quote and whitespace variants matched | pass | `uv run pytest -k verbatim` | derived: firewall |
+| ISC-44 | bash | worker tests: fabricated sentence dropped; quote, case, whitespace-beside-punctuation and end-ellipsis variants matched; words, punctuation and spaces between words still count | pass | `uv run pytest -k verbatim` | derived: firewall |
 | ISC-44.1 | bash | worker test: offsets slice the document text back to the stored sentence | equal | `uv run pytest -k offsets` | derived: firewall |
 
 ## Decisions
@@ -372,6 +372,8 @@ Why: measure quality on real articles before trusting or tuning prompts, the cal
   - The prompt is estimated at half its characters, rounded up, since these Models have no public tokenizer. That overestimates English (about 4 characters a token) and stays safe for denser scripts.
   - A failed lookup does not stop the run: it logs one error line without key or body, and every call uses a fixed 16,384 tokens, the budget S2 shipped with.
   - A reply whose `finish_reason` is `length` fails with the new reason `output_truncated` before its text is read, because a reply cut off while thinking can be empty. Both Providers report `length` the same way: a live call capped at 8 tokens gave `output_truncated` on each.
+- 2026-10-09: **One matching rule, loosened (S4).** A Model's sentence matches the Document text when it is the same once curly quotes are straight, letters are lower case, and an ellipsis at either end is dropped. Whitespace counts only between two letters or digits, as one space. Every word, punctuation mark and space between two words must still be there, and the emitted sentence is still the Document text's own slice. None of these can admit a fabricated sentence; the cost is that a cut-off quote is staged as the part that was found.
+- 2026-10-09: **Fetch keeps inline markup in its sentence (S4, the principal's call to fix it now rather than in S6).** The body is one line per block element or `<br>`, and links and emphasis join the text around them as written. Specter's port joined every text node with a line break, so `<a>LLC Varnas Trade</a>, and` became `LLC Varnas Trade` on its own line before `, and`, and a word split by markup broke in two. The corpus bodies carry that artifact, so the evals still exercise the matching rule above.
 
 ## Learning
 
@@ -397,6 +399,10 @@ Why: measure quality on real articles before trusting or tuning prompts, the cal
   - refuted by: four live Pass 1 calls of `gemini-flash-lite-latest` on a 33k-character corpus article on 2026-10-07. Three failed as `bad_output`, each on one item out of 30 to 38 with a garbled key, such as `supporting_sentences` with a leading space. With that item dropped, Pass 2 validated on both runs that reached it.
   - learned: free Models garble single items often, and one bad item must not cost the whole reply. This is Specter's 29-runs-0-successes failure in small.
   - criterion now: ISC-63.
+- conjectured: the verbatim check costs little recall; one live run on 2026-10-09 dropped 2 of 25 Entities.
+  - refuted by: four live runs of `gemini-flash-lite-latest` on eval articles on 2026-10-09. 30 of 232 sentences were not found, and one 6k-character article lost 13 of its 27 Entities. 28 of the 30 came from a space our own fetch left before the punctuation after a link, which the Model's copy did not have; one had a leading ellipsis and one a capitalised clause start.
+  - learned: the drop rate depends on the article's link density, and the cause was our fetch, not the Model. A strict rule on a messy text is a recall cut that looks like Model weakness.
+  - criterion now: ISC-44 (the loosened rule), and the fetch fix (Decisions, 2026-10-09). Under the new rule all 232 sentences are found and slice back exactly.
 
 ## Verification
 
@@ -414,6 +420,7 @@ Why: measure quality on real articles before trusting or tuning prompts, the cal
 - ISC-61: `uv run pytest -k two_pass_events` selected no tests at `5b2c172` (exit 5) and passes 14 after the build. Live on Gemini, `extract` ran both passes on two corpus bodies (28.9k and 33k characters) and one Insider URL: 31 to 63 Entities, 1 to 4 Events each with date and place, 22 to 38 Relationships, in 17 to 60 s.
 - ISC-63: `uv run pytest -k malformed_item` selected no tests at `00d683f` and passes 52 after the build. Breaking the log redaction, the dropped count or the `PARTICIPATED_IN` rule each turned a test red. Before the fix, 3 of 4 live Pass 1 replies failed whole on one garbled item.
 - ISC-44: `uv run pytest -k verbatim` had no tests at `e2598dc` and passes 31 after the build. Emitting the Model's wording, not folding quotes, and keeping a Proposal with no found sentence each turned tests red.
+  Re-verified on the loosened rule (2026-10-09, S4): the 11 new matching tests failed at `91069b0` and pass after it. Dropping the case fold, the ellipsis trim, or the whitespace rule in either direction each turned tests red. All 232 sentences of four saved live replies are found, against 202 before.
 - ISC-44.1: `uv run pytest -k offsets` had no tests at `e2598dc` and passes 9 after the build. An off-by-one end and translated newlines each turned tests red. Live on Gemini on 2026-10-09, `extract --text-file` on two corpus bodies (16.9k and 33k characters) emitted 54 sentences, and every one equalled the Document text sliced at its offsets.
 - ISC-13: `uv run pytest -k output_budget` selected only the old fixed-cap test at `2c1b5ae`, which the build deletes, and passes 53 after it. Dropping the context cap and rounding the prompt estimate down each turned tests red. Live, both Providers' lookups returned their default Model's limits (Decisions, 2026-10-09).
 - ISC-12: `uv run pytest -k truncated` selected no tests at `2c1b5ae` and passes 7 after the build. Removing the `length` check turned all 7 red. Live, a call capped at 8 tokens failed as `output_truncated` on both OpenRouter and Gemini.

@@ -44,6 +44,59 @@ def test_structural_selector_gives_the_body_title_and_date() -> None:
     assert article.final_url == URL
 
 
+def _body_of(main: str) -> str:
+    """The Document text fetch reads from a page whose <main> holds ``main``."""
+    html = f"<html><head><title>T</title></head><body><main>{main}</main></body></html>"
+    padding = "<p>" + "Filler sentence about Karsk. " * 40 + "</p>"
+    transport = httpx.MockTransport(
+        lambda request: httpx.Response(
+            200, text=html.replace("</main>", padding + "</main>")
+        )
+    )
+    body = fetch_article(URL, transport=transport).body
+    return body.rsplit("\n", 1)[0]
+
+
+def test_inline_markup_stays_inside_its_sentence() -> None:
+    """A link or emphasis is part of the sentence around it: no line break
+    before it, and none between it and the comma after it."""
+    body = _body_of(
+        "<p>The buyer was <a href='#'>LLC Varnas Trade</a>, and the order was placed "
+        "by <em>Dolmen Freight</em> (<strong>Karsk</strong>).</p>"
+    )
+
+    assert body == (
+        "The buyer was LLC Varnas Trade, and the order was placed by Dolmen Freight "
+        "(Karsk)."
+    )
+
+
+def test_a_word_split_by_markup_stays_whole() -> None:
+    assert _body_of("<p>Ser<b>gei</b> Arlen<a href='#'>ko</a> left.</p>") == (
+        "Sergei Arlenko left."
+    )
+
+
+def test_blocks_and_line_breaks_start_new_lines() -> None:
+    """Paragraphs, headings, list items and <br> each start a line; whitespace
+    runs inside a line become one space; empty blocks leave no blank line."""
+    body = _body_of(
+        "<h2>The  network</h2>\n<p>First\n   paragraph.</p><p></p>"
+        "<ul><li>One <a href='#'>item</a></li><li>Two</li></ul>"
+        "<p>Line one<br>line two</p><div>Loose <span>text</span></div>"
+    )
+
+    assert body.split("\n") == [
+        "The network",
+        "First paragraph.",
+        "One item",
+        "Two",
+        "Line one",
+        "line two",
+        "Loose text",
+    ]
+
+
 def test_a_page_without_og_title_or_date_uses_the_title_element() -> None:
     """The <title> is the fallback title, and a missing date is None."""
     article = fetch_article(URL, transport=_serving("shipment_trace.html"))
