@@ -294,12 +294,19 @@ def _last_message(stdout: bytes) -> tuple[str | None, Failed | None]:
 
 
 def extract_once(
-    worker: Path, provider: Provider, model: str, body: Path, timeout: float
+    worker: Path,
+    provider: Provider,
+    model: str,
+    body: Path,
+    timeout: float,
+    options: Sequence[str] = (),
 ) -> Attempt:
-    """Run ``worker extract`` once over the text file ``body`` and say how it
-    ended. The key reaches the worker through the inherited environment."""
+    """Run ``worker extract`` once over the text file ``body``, with any extra
+    ``options``, and say how it ended. The key reaches the worker through the
+    inherited environment."""
     started = time.monotonic()
     command = [str(worker), "extract", "--provider", provider, "--model", model]
+    command += options
     try:
         done = subprocess.run(
             [*command, "--text-file", str(body)],
@@ -722,6 +729,13 @@ def main(argv: list[str] | None = None) -> int:
     for sub in (run_parser, score_parser):
         sub.add_argument("--bodies", type=Path, default=BODIES_DIR)
         sub.add_argument(
+            "--pass2-chunk-chars",
+            type=int,
+            default=0,
+            help="ask Pass 2 per part of this many characters; its runs are kept "
+            "in their own folder",
+        )
+        sub.add_argument(
             "--runs", type=Path, help="default: evals/runs/<the prompts' hash>"
         )
     score_parser.add_argument("--labels", type=Path, default=LABELS_DIR)
@@ -736,15 +750,21 @@ def main(argv: list[str] | None = None) -> int:
     review_parser.add_argument("--out", type=Path, default=REVIEW_DIR)
     args = parser.parse_args(argv)
     if args.command in ("run", "score") and args.runs is None:
-        args.runs = RUNS_DIR / prompt_version()
+        chunks = f"-p2chunk{args.pass2_chunk_chars}" if args.pass2_chunk_chars else ""
+        args.runs = RUNS_DIR / f"{prompt_version()}{chunks}"
     if args.command == "lint":
         return _lint_command(args.paths, args.bodies)
     if args.command == "run":
         worker = Path(sys.executable).with_name("respec-worker")
 
         def extract(body: Path) -> Attempt:
+            options = (
+                ["--pass2-chunk-chars", str(args.pass2_chunk_chars)]
+                if args.pass2_chunk_chars
+                else []
+            )
             return extract_once(
-                worker, args.provider, args.model, body, RUN_TIMEOUT_SECONDS
+                worker, args.provider, args.model, body, RUN_TIMEOUT_SECONDS, options
             )
 
         return run_model(

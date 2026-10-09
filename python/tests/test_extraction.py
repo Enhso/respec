@@ -800,3 +800,40 @@ def test_no_unknown_ids_and_no_wrong_ends_drops_nothing() -> None:
     kept, dropped = _resolved(_links(_link()))
 
     assert len(kept) == 1 and dropped == 0
+
+
+# ---- Pass 2 chunks (the gate A chunking experiment) ----
+
+PARAGRAPHS = "Alpha one.\nBeta two is longer.\nGamma three.\nDelta four.\nEpsilon."
+
+
+@pytest.mark.parametrize("limit", [5, 12, 20, 30, 1000])
+def test_split_paragraphs_keeps_every_character_in_order(limit: int) -> None:
+    from respec_worker.extraction import split_paragraphs
+
+    chunks = split_paragraphs(PARAGRAPHS, limit)
+
+    assert "".join(chunks) == PARAGRAPHS
+    assert all(chunk for chunk in chunks)
+
+
+def test_split_paragraphs_cuts_only_after_a_line_break_and_within_the_limit() -> None:
+    from respec_worker.extraction import split_paragraphs
+
+    chunks = split_paragraphs(PARAGRAPHS, 25)
+
+    assert chunks == [
+        "Alpha one.\n",
+        "Beta two is longer.\n",
+        "Gamma three.\nDelta four.\n",
+        "Epsilon.",
+    ]
+
+
+def test_split_paragraphs_leaves_a_short_text_whole_and_a_long_paragraph_whole() -> (
+    None
+):
+    from respec_worker.extraction import split_paragraphs
+
+    assert split_paragraphs(PARAGRAPHS, 1000) == [PARAGRAPHS]
+    assert split_paragraphs("x" * 50 + "\ny", 10) == ["x" * 50 + "\n", "y"]

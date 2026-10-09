@@ -17,12 +17,14 @@ from respec_worker.extraction import (
     DocumentText,
     Grounded,
     Pass1EntityProposal,
+    Pass2RelationshipProposal,
     ground,
     known_relationships,
     parse_pass1,
     parse_pass2,
     pass1_messages,
     pass2_messages,
+    split_paragraphs,
     stamp_ids,
 )
 from respec_worker.fetch import FetchError, fetch_article
@@ -221,6 +223,7 @@ def run_extract(
     provider: Provider,
     *,
     model: str | None = None,
+    pass2_chunk_chars: int = 0,
     url: str | None,
     text_file: Path | None,
     transport: httpx.BaseTransport | None,
@@ -229,7 +232,10 @@ def run_extract(
     """Run both extraction passes over one Document and report them as messages.
 
     The Document is the article at ``url`` or the text in ``text_file``, and the
-    Model is ``model``, by default the Provider's default Model. Emits
+    Model is ``model``, by default the Provider's default Model. With
+    ``pass2_chunk_chars``, Pass 2 is asked once per part of the text of at most
+    that many characters, and the parts' links are merged; Pass 1 always reads
+    the whole text. Emits
     ``progress`` messages while it works, ``entities`` once Pass 1 is read, and
     then ``relationships`` (returning 0) or ``failed`` (returning 1). The key
     comes from the Provider's environment variable and is sent only to the
@@ -314,14 +320,26 @@ def run_extract(
                 sentences_dropped=grounded_entities.sentences_dropped,
             )
         )
-        reply = ask(
-            2,
-            f"calling {model} for relationships",
-            pass2_messages(body, entities),
+        parts = (
+            split_paragraphs(body, pass2_chunk_chars) if pass2_chunk_chars else [body]
         )
-        pass2 = parse_pass2(reply)
-        grounded_links = ground(pass2.relationships, document, "relationship")
-        links, unresolved = known_relationships(grounded_links.kept, entities)
+        links: list[Grounded[Pass2RelationshipProposal]] = []
+        seen: set[tuple[str, str, str]] = set()
+        dropped = sentences_dropped = 0
+        for number, part in enumerate(parts, start=1):
+            detail = f"calling {model} for relationships"
+            if len(parts) > 1:
+                detail += f", part {number} of {len(parts)}"
+            pass2 = parse_pass2(ask(2, detail, pass2_messages(part, entities)))
+            grounded_links = ground(pass2.relationships, document, "relationship")
+            kept, unresolved = known_relationships(grounded_links.kept, entities)
+            dropped += pass2.dropped + grounded_links.dropped + unresolved
+            sentences_dropped += grounded_links.sentences_dropped
+            for link in kept:
+                proposal = link.proposal
+                if (proposal.type, proposal.from_id, proposal.to_id) not in seen:
+                    seen.add((proposal.type, proposal.from_id, proposal.to_id))
+                    links.append(link)
     except ChatFailure as failure:
         emit(Failed(provider=provider, reason=failure.reason, message=failure.message))
         return 1
@@ -346,8 +364,8 @@ def run_extract(
                 )
                 for link in links
             ],
-            dropped=pass2.dropped + grounded_links.dropped + unresolved,
-            sentences_dropped=grounded_links.sentences_dropped,
+            dropped=dropped,
+            sentences_dropped=sentences_dropped,
         )
     )
     return 0
@@ -397,6 +415,13 @@ def main(
     extract.add_argument(
         "--model", help="the Model to call (default: the Provider's default Model)"
     )
+    extract.add_argument(
+        "--pass2-chunk-chars",
+        type=int,
+        default=0,
+        help="ask Pass 2 once per part of at most this many characters (default: "
+        "the whole text at once)",
+    )
     args = parser.parse_args(argv)
     if args.command == "test-call":
         return run_test_call(args.provider, transport=transport)
@@ -408,6 +433,7 @@ def main(
         return run_extract(
             args.provider,
             model=args.model,
+            pass2_chunk_chars=args.pass2_chunk_chars,
             url=args.url,
             text_file=args.text_file,
             transport=transport,

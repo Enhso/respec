@@ -1020,6 +1020,50 @@ def test_extract_model_option_replaces_the_default_model_everywhere(
     assert entities.model == relationships.model == "other-model"
 
 
+def test_extract_pass_2_chunks_ask_once_per_part_and_merge_the_links(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """With `--pass2-chunk-chars`, Pass 1 reads the whole article once and Pass
+    2 is asked once per part, each with only its part of the text; the links of
+    all parts are merged, and a link two parts both propose is kept once."""
+    from respec_worker.extraction import split_paragraphs
+
+    text = _article_text("shipment_trace")
+    parts = split_paragraphs(text, 700)
+    assert len(parts) >= 3
+    network = _shipment_network(_json_reply(relationships=SHIPMENT_LINKS[:2]))
+
+    code, messages = _extract_command(
+        network,
+        capsys,
+        monkeypatch,
+        "--url",
+        SHIPMENT_URL,
+        "--pass2-chunk-chars",
+        "700",
+    )
+
+    assert code == 0
+    assert len(network.chat_requests) == 1 + len(parts)
+    users = [
+        orjson.loads(r.content)["messages"][1]["content"] for r in network.chat_requests
+    ]
+    for part, user in zip(parts, users[1:], strict=True):
+        assert user.startswith("PASS: 2") and part.strip() in user
+        assert all(other.strip() not in user for other in parts if other != part)
+    details = [
+        m.detail for m in messages if isinstance(m, Progress) and m.pass_number == 2
+    ]
+    assert details[-1].endswith(f"part {len(parts)} of {len(parts)}")
+    relationships = messages[-1]
+    assert isinstance(relationships, Relationships)
+    assert [(r.type, r.from_id, r.to_id) for r in relationships.relationships] == [
+        ("PARTICIPATED_IN", "e4", "e5"),
+        ("PARTICIPATED_IN", "e3", "e6"),
+        ("LOCATED_IN", "e1", "e2"),
+    ]
+
+
 def test_the_article_site_never_sees_the_key_in_extract(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

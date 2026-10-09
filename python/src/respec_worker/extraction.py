@@ -498,6 +498,27 @@ def ground[Proposal: _Supported](
     return Grounding(kept, dropped, sentences_dropped)
 
 
+def split_paragraphs(body: str, max_chars: int) -> list[str]:
+    """``body`` cut after line breaks into parts of at most ``max_chars``
+    characters each, in order and with nothing lost: joined, they are ``body``.
+
+    A single paragraph longer than ``max_chars`` is a part of its own, since
+    cutting inside it could split the sentence a Model must quote.
+    """
+    parts: list[str] = []
+    current = ""
+    for paragraph in re.split(r"(?<=\n)", body):
+        if not paragraph:
+            continue
+        if current and len(current) + len(paragraph) > max_chars:
+            parts.append(current)
+            current = ""
+        current += paragraph
+    if current:
+        parts.append(current)
+    return parts
+
+
 def stamp_ids(
     entities: Sequence[Grounded[Pass1EntityProposal]],
 ) -> dict[str, Grounded[Pass1EntityProposal]]:
