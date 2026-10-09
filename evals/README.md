@@ -77,7 +77,7 @@ Key means the operator, tracking networks across articles, would want it in his 
 
 Each Model runs three samples per article. Recall is micro-averaged over every labelled item and every successful sample, and printed per article and for articles over and under 15k characters (the chunking question).
 
-- A proposed Entity recalls a key Entity when its name equals the key Entity's name or an alias, ignoring case, accents, punctuation and a leading "the". It also counts when the name contains one of those forms as whole words and the kinds fit: the same kind, or `Identity` with `Person` or `Organization`.
+- A proposed Entity recalls a key Entity when its name equals the key Entity's name or an alias, ignoring case, accents, punctuation and a leading "the". It also counts when the name contains one of those forms as whole words and the kinds fit: the same kind, or `Identity` with `Person` or `Organization`. Only the closest names count: an exact name beats a contained one, and a longer contained form beats a shorter one, so a subsidiary named after its parent does not also recall the parent.
 - A proposed Event recalls a key Event when its name matches as above, or its sentence overlaps one of the key Event's sentences in the Document text. A name match wins: an Event named as one key Event is not also credited with another that shares its sentence.
 - A proposed Relationship recalls a key Relationship when its two ends recall the key Relationship's two ends, in either direction, and its type is one of `types`. Recall with any type is printed beside it, to tell a missed link from a mistyped one.
 

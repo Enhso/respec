@@ -455,15 +455,16 @@ def recalled_keys(
     words = name_tokens(entity.name)
     if not words:
         return set()
-    named: set[str] = set()
+    strength: dict[str, tuple[int, int]] = {}
     placed: set[str] = set()
     for key in labels.entities:
         forms = [name_tokens(form) for form in key.forms]
-        if words in forms or (
-            _kinds_fit(entity.label, key.kind)
-            and any(_contains(words, form) for form in forms)
+        if words in forms:
+            strength[key.id] = (2, 0)
+        elif _kinds_fit(entity.label, key.kind) and any(
+            _contains(words, form) for form in forms
         ):
-            named.add(key.id)
+            strength[key.id] = (1, max(len(f) for f in forms if _contains(words, f)))
         elif (
             key.kind == "Event"
             and entity.label == "Event"
@@ -473,6 +474,11 @@ def recalled_keys(
             )
         ):
             placed.add(key.id)
+    # Only the closest names count: an exact name beats a contained one, and a
+    # longer contained form beats a shorter one, so "Dolmen Freight" does not
+    # also recall a parent company aliased "Dolmen".
+    best = max(strength.values(), default=None)
+    named = {key for key, value in strength.items() if value == best}
     # A sentence can report two Events; an Event named as one key Event is
     # not also credited with another whose sentence it shares.
     events = {key.id for key in labels.key_events}

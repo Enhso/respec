@@ -177,6 +177,45 @@ def test_evals_a_name_containing_a_form_recalls_when_the_kinds_fit() -> None:
     assert _recalls(_entity("e1", "Identity", "Ada Verrin, the director")) == {"k1"}
 
 
+def _with_parent() -> Labels:
+    """The labels plus a parent company whose alias is a word of its
+    subsidiary's name."""
+    return _labels(
+        entities=[
+            *_labels().model_dump(by_alias=True)["entities"],
+            {
+                "id": "k5",
+                "kind": "Organization",
+                "name": "Dolmen Group",
+                "aliases": ["Dolmen"],
+                "sentences": [SHIPPED],
+            },
+        ]
+    )
+
+
+@pytest.mark.parametrize(
+    ("name", "recalled"),
+    [
+        ("Dolmen Freight", {"k2"}),
+        ("Dolmen Freight Karsk branch", {"k2"}),
+        ("Dolmen holding", {"k5"}),
+    ],
+    ids=["exact-beats-containing", "longest-form-wins", "parent-alone"],
+)
+def test_evals_the_closest_form_wins_over_a_shorter_one_inside_it(
+    name: str, recalled: set[str]
+) -> None:
+    """A subsidiary named after its parent recalls only itself: an exact name
+    beats a contained one, and a longer contained form beats a shorter one."""
+    labels = _with_parent()
+    proposed = _entity("e1", "Organization", name)
+
+    assert recalled_keys(proposed, labels, event_spans(labels, DocumentText(BODY))) == (
+        recalled
+    )
+
+
 def test_evals_a_name_containing_a_form_of_another_kind_recalls_nothing() -> None:
     """A Person named after her company is not the company."""
     assert (
