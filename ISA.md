@@ -87,7 +87,6 @@ Derived anchors used in Test Strategy:
 
 ## Not yet specified
 
-- fog: whether long articles need chunking within the two passes. Resolved by the F7 evals, which run on the worker alone.
 - fog: the mnestic schema. Open: Knowledge and Hypothesis as separate relations or a status column, and how valid time and transaction time map onto observations. Resolved by a throwaway store prototype before F2.
 - fog: which providers beyond OpenRouter and Gemini. Settled in the providers session (PLAN S11). Where model specs come from was settled in S3 (Decisions, 2026-10-09).
 - fog: how a breaking mnestic upgrade is applied (replay from files, or export and import). Designed alongside ISC-5.
@@ -384,6 +383,7 @@ Why: measure quality on real articles before trusting or tuning prompts, the cal
   - Changed: the prompts ask for every Entity, Event and Relationship the article states; they list which happenings are Events; `ASSOCIATED_WITH` covers a payment or a business tie; and a 16th type, `SUPPLIED` (from the seller), covers sale, shipment and delivery.
   - Against fitting the prompt to the eval, changes were judged on four dev articles (`evals/dev.txt`) and the gate is read on the other eight (`evals/held-out.txt`) as well as on all twelve. Runs are kept per prompt hash, so the two prompts' runs never mix.
   - Rejected: calling the gate on the first prompt, since it measured the prompt's restraint as much as the Models.
+- 2026-10-09: **No chunking (S4), settling the fog.** On the 5 long articles (Flash-Lite, new prompt, 3 samples each), asking Pass 2 once per 8k-character part raised key Relationship recall only from 0.34 to 0.36. Long articles' Entities (0.86) hold up, so their Relationship gap is not context length. `--pass2-chunk-chars` stays as an off-by-default option for later experiments. The same runs showed Event recall at 0.67 and 0.48 across two independent sets of 3 samples, a step chunking does not touch: differences under about 0.15 on this eval are noise.
 - 2026-10-09: **One matching rule, loosened (S4).** A Model's sentence matches the Document text when it is the same once curly quotes are straight, letters are lower case, and an ellipsis at either end is dropped. Whitespace counts only between two letters or digits, as one space. Every word, punctuation mark and space between two words must still be there, and the emitted sentence is still the Document text's own slice. None of these can admit a fabricated sentence; the cost is that a cut-off quote is staged as the part that was found.
 - 2026-10-09: **Fetch keeps inline markup in its sentence (S4, the principal's call to fix it now rather than in S6).** The body is one line per block element or `<br>`, and links and emphasis join the text around them as written. Specter's port joined every text node with a line break, so `<a>LLC Varnas Trade</a>, and` became `LLC Varnas Trade` on its own line before `, and`, and a word split by markup broke in two. The corpus bodies carry that artifact, so the evals still exercise the matching rule above.
 
@@ -411,6 +411,10 @@ Why: measure quality on real articles before trusting or tuning prompts, the cal
   - refuted by: four live Pass 1 calls of `gemini-flash-lite-latest` on a 33k-character corpus article on 2026-10-07. Three failed as `bad_output`, each on one item out of 30 to 38 with a garbled key, such as `supporting_sentences` with a leading space. With that item dropped, Pass 2 validated on both runs that reached it.
   - learned: free Models garble single items often, and one bad item must not cost the whole reply. This is Specter's 29-runs-0-successes failure in small.
   - criterion now: ISC-63.
+- conjectured: asking the Model for "fewer, well-grounded items" keeps the review list short at little cost to recall.
+  - refuted by: Flash-Lite over the 12 eval articles, 3 samples each, against the drafted labels on 2026-10-09. With that line, key Event recall was 0.25 and key Relationship recall 0.30. Without it, and with a list of what counts as an Event and the `SUPPLIED` type, they were 0.62 and 0.45, and 0.63 and 0.40 on the eight held-out articles the change was not tuned on. Entity recall went from 0.86 to 0.89.
+  - learned: the prompt's restraint cost more recall than the free Model's weakness did. The price is review load: Proposals per article rose from about 51 (33 Entities, 18 Relationships) to about 76 (43 and 33).
+  - criterion now: ISC-62 and ISC-43.1, read on the held-out split as well as the whole set.
 - conjectured: the verbatim check costs little recall; one live run on 2026-10-09 dropped 2 of 25 Entities.
   - refuted by: four live runs of `gemini-flash-lite-latest` on eval articles on 2026-10-09. 30 of 232 sentences were not found, and one 6k-character article lost 13 of its 27 Entities. 28 of the 30 came from a space our own fetch left before the punctuation after a link, which the Model's copy did not have; one had a leading ellipsis and one a capitalised clause start.
   - learned: the drop rate depends on the article's link density, and the cause was our fetch, not the Model. A strict rule on a messy text is a recall cut that looks like Model weakness.
