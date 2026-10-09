@@ -995,6 +995,31 @@ def test_two_pass_events_without_a_key_nothing_is_requested(
     assert network.requests == []
 
 
+def test_extract_model_option_replaces_the_default_model_everywhere(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """`--model` names the Model for the spec lookup, both chat calls and every
+    message that names a Model; the evals compare Models this way."""
+    network = _shipment_network()
+
+    code, messages = _extract_command(
+        network, capsys, monkeypatch, "--url", SHIPMENT_URL, "--model", "other-model"
+    )
+
+    assert code == 0
+    assert [orjson.loads(r.content)["model"] for r in network.chat_requests] == [
+        "other-model",
+        "other-model",
+    ]
+    (lookup,) = network.spec_requests
+    assert lookup.url.path.endswith("/models/other-model")
+    _, pass1, entities, pass2, relationships = messages
+    assert isinstance(pass1, Progress) and isinstance(pass2, Progress)
+    assert "other-model" in pass1.detail and "other-model" in pass2.detail
+    assert isinstance(entities, Entities) and isinstance(relationships, Relationships)
+    assert entities.model == relationships.model == "other-model"
+
+
 def test_the_article_site_never_sees_the_key_in_extract(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

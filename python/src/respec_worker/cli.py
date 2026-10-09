@@ -220,6 +220,7 @@ def _read_text_file(provider: Provider, path: Path) -> str | None:
 def run_extract(
     provider: Provider,
     *,
+    model: str | None = None,
     url: str | None,
     text_file: Path | None,
     transport: httpx.BaseTransport | None,
@@ -227,7 +228,8 @@ def run_extract(
 ) -> int:
     """Run both extraction passes over one Document and report them as messages.
 
-    The Document is the article at ``url`` or the text in ``text_file``. Emits
+    The Document is the article at ``url`` or the text in ``text_file``, and the
+    Model is ``model``, by default the Provider's default Model. Emits
     ``progress`` messages while it works, ``entities`` once Pass 1 is read, and
     then ``relationships`` (returning 0) or ``failed`` (returning 1). The key
     comes from the Provider's environment variable and is sent only to the
@@ -237,6 +239,7 @@ def run_extract(
     key = _key_from_environment(provider)
     if key is None:
         return 1
+    model = model or spec.default_model
 
     def progress(stage: Stage, detail: str, pass_number: int | None = None) -> None:
         emit(
@@ -264,9 +267,7 @@ def run_extract(
             return 1
         body, location, title = article.body, article.final_url, article.title or None
 
-    model_spec = lookup_model_spec(
-        provider, key, spec.default_model, transport=transport
-    )
+    model_spec = lookup_model_spec(provider, key, model, transport=transport)
 
     def ask(pass_number: int, detail: str, messages: list[dict[str, str]]) -> str:
         def waiting(seconds: int, attempt: int, attempts: int) -> None:
@@ -285,7 +286,7 @@ def run_extract(
         return chat_with_retries(
             provider,
             key,
-            spec.default_model,
+            model,
             messages,
             output_budget(model_spec, messages),
             on_wait=waiting,
@@ -297,7 +298,7 @@ def run_extract(
     try:
         reply = ask(
             1,
-            f"calling {spec.default_model} on {len(body):,} characters",
+            f"calling {model} on {len(body):,} characters",
             pass1_messages(body),
         )
         pass1 = parse_pass1(reply)
@@ -306,7 +307,7 @@ def run_extract(
         emit(
             Entities(
                 provider=provider,
-                model=spec.default_model,
+                model=model,
                 document=DocumentSummary(url=location, title=title, chars=len(body)),
                 entities=_proposed_entities(entities),
                 dropped=pass1.dropped + grounded_entities.dropped,
@@ -315,7 +316,7 @@ def run_extract(
         )
         reply = ask(
             2,
-            f"calling {spec.default_model} for relationships",
+            f"calling {model} for relationships",
             pass2_messages(body, entities),
         )
         pass2 = parse_pass2(reply)
@@ -330,7 +331,7 @@ def run_extract(
     emit(
         Relationships(
             provider=provider,
-            model=spec.default_model,
+            model=model,
             relationships=[
                 ProposedRelationship(
                     type=link.proposal.type,
@@ -393,6 +394,9 @@ def main(
     source = extract.add_mutually_exclusive_group(required=True)
     source.add_argument("--url")
     source.add_argument("--text-file", type=Path)
+    extract.add_argument(
+        "--model", help="the Model to call (default: the Provider's default Model)"
+    )
     args = parser.parse_args(argv)
     if args.command == "test-call":
         return run_test_call(args.provider, transport=transport)
@@ -403,6 +407,7 @@ def main(
     if args.command == "extract":
         return run_extract(
             args.provider,
+            model=args.model,
             url=args.url,
             text_file=args.text_file,
             transport=transport,

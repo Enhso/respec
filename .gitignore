@@ -1,6 +1,11 @@
 # Third-party article text, kept only for local evals
 corpus/bodies/
 
+# Eval labels name real people; runs and review pages hold article text
+evals/labels/
+evals/runs/
+evals/review/
+
 # Operator data and secrets
 .env
 data/
