@@ -10,9 +10,9 @@ from typing import Final, get_args
 
 import httpx
 
+from respec_worker.budget import lookup_model_spec, output_budget
 from respec_worker.client import ChatFailure, chat, chat_with_retries
 from respec_worker.extraction import (
-    PASS1_MAX_TOKENS,
     BadOutput,
     DocumentText,
     Grounded,
@@ -125,17 +125,21 @@ def run_test_extraction(
             f"Rate limited; retrying in {seconds} s (attempt {attempt} of {attempts})",
         )
 
+    model_spec = lookup_model_spec(
+        provider, key, spec.default_model, transport=transport
+    )
     progress(
         "calling_model",
         f"Calling {spec.default_model} on {len(article.body):,} characters",
     )
+    messages = pass1_messages(article.body)
     try:
         reply = chat_with_retries(
             provider,
             key,
             spec.default_model,
-            pass1_messages(article.body),
-            PASS1_MAX_TOKENS,
+            messages,
+            output_budget(model_spec, messages),
             on_wait=waiting,
             transport=transport,
             sleep=sleep,
@@ -260,6 +264,10 @@ def run_extract(
             return 1
         body, location, title = article.body, article.final_url, article.title or None
 
+    model_spec = lookup_model_spec(
+        provider, key, spec.default_model, transport=transport
+    )
+
     def ask(pass_number: int, detail: str, messages: list[dict[str, str]]) -> str:
         def waiting(seconds: int, attempt: int, attempts: int) -> None:
             progress(
@@ -279,7 +287,7 @@ def run_extract(
             key,
             spec.default_model,
             messages,
-            PASS1_MAX_TOKENS,
+            output_budget(model_spec, messages),
             on_wait=waiting,
             transport=transport,
             sleep=sleep,

@@ -1,0 +1,16 @@
+{
+  "id": "chatcmpl-invented-0001",
+  "object": "chat.completion",
+  "model": "invented-model",
+  "choices": [
+    {
+      "index": 0,
+      "finish_reason": "length",
+      "message": {
+        "role": "assistant",
+        "content": "```json\n{\"entities\": [{\"label\": \"Location\", \"name\": \"Port Verrin\", \"supporting_sentences\": [\"This investigation traces a single shipment of dual-use machine tools from Port Verrin to a work"
+      }
+    }
+  ],
+  "usage": {"prompt_tokens": 3800, "completion_tokens": 5, "total_tokens": 3805}
+}

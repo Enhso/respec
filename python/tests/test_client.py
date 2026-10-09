@@ -136,6 +136,78 @@ def test_an_answer_without_reply_text_is_other(response: httpx.Response) -> None
     assert _fail(_answering(response)).reason == "other"
 
 
+def _cut_off(content: str | None) -> httpx.Response:
+    """A 200 whose first choice stopped at the output-token limit."""
+    return httpx.Response(
+        200,
+        json={
+            "choices": [
+                {"message": {"content": content}, "finish_reason": "length"},
+            ]
+        },
+    )
+
+
+@pytest.mark.parametrize(
+    "content",
+    ['{"entities": [{"label": "Person", "na', "", None],
+    ids=["partial-json", "empty", "null"],
+)
+def test_truncated_reply_is_output_truncated_with_a_next_step(
+    content: str | None,
+) -> None:
+    """ISC-12: a 200 that stopped at the limit is `output_truncated`, even when
+    the cut-off reply is empty, and the message is one plain sentence with a next
+    step that holds neither the body nor the key."""
+    failure = _fail(_answering(_cut_off(content)))
+
+    assert failure.reason == "output_truncated"
+    assert failure.message == str(failure)
+    assert failure.message.endswith(".")
+    assert "cut off" in failure.message and "try " in failure.message
+    assert KEY not in failure.message
+    assert (content or "x") not in failure.message
+
+
+@pytest.mark.parametrize("finish_reason", ["stop", "STOP", None, "content_filter"])
+def test_a_reply_that_did_not_stop_at_the_limit_is_returned(
+    finish_reason: str | None,
+) -> None:
+    """Only `length` means truncation; every other `finish_reason`, and none,
+    leaves the reply as it was."""
+    choice = {"message": {"content": "all of it"}, "finish_reason": finish_reason}
+
+    reply = chat(
+        "gemini",
+        KEY,
+        "m",
+        MESSAGES,
+        transport=_answering(httpx.Response(200, json={"choices": [choice]})),
+    )
+
+    assert reply == "all of it"
+
+
+def test_a_truncated_reply_is_not_retried() -> None:
+    """`output_truncated` is raised at once; asking again would hit the same limit."""
+    transport, count = _sequence(_cut_off("partial"), OK)
+
+    with pytest.raises(ChatFailure) as excinfo:
+        chat_with_retries(
+            "openrouter",
+            KEY,
+            "m",
+            MESSAGES,
+            100,
+            on_wait=lambda *args: None,
+            transport=transport,
+            sleep=lambda seconds: None,
+        )
+
+    assert excinfo.value.reason == "output_truncated"
+    assert len(count) == 1
+
+
 def test_timeout_is_sixty_seconds() -> None:
     """The client sets a 60 s timeout on the request."""
     seen: list[object] = []

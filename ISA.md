@@ -89,7 +89,7 @@ Derived anchors used in Test Strategy:
 
 - fog: whether long articles need chunking within the two passes. Resolved by the F7 evals, which run on the worker alone.
 - fog: the mnestic schema. Open: Knowledge and Hypothesis as separate relations or a status column, and how valid time and transaction time map onto observations. Resolved by a throwaway store prototype before F2.
-- fog: where model specs come from (each provider's model-list API, or a curated file) and which providers beyond OpenRouter and Gemini. Candidates: OpenRouter's models API and Gemini's models.list. Settled in the worker session.
+- fog: which providers beyond OpenRouter and Gemini. Settled in the providers session (PLAN S11). Where model specs come from was settled in S3 (Decisions, 2026-10-09).
 - fog: how a breaking mnestic upgrade is applied (replay from files, or export and import). Designed alongside ISC-5.
 - fog: what a rejection means when a later Document proposes the same Relationship: shown again, shown as previously rejected, or suppressed. Settled in the review session (PLAN S8).
 
@@ -119,8 +119,8 @@ Why: one pasted article travels the whole pipeline on a free model before anythi
 - [ ] ISC-9: `POST /api/documents` with a URL returns a job id and saves the fetched article text under the data directory.
 - [ ] ISC-10: Submitting raw pasted text creates a document the same way, and requires a source URL or title plus a publication date.
 - [ ] ISC-11: Every article in the five-article smoke set (one is over 20k characters) yields at least one relationship proposal whose sentence is verified in the document text, through the running app on a free model. (after: ISC-9)
-- [ ] ISC-12: Anti: a model reply cut off by the output-token cap is reported as `output_truncated`, never as a parse error.
-- [ ] ISC-13: The output-token budget for each call is the model's max-output spec, capped at its context window minus the prompt.
+- [x] ISC-12: Anti: a model reply cut off by the output-token cap is reported as `output_truncated`, never as a parse error.
+- [x] ISC-13: The output-token budget for each call is the model's max-output spec, capped at its context window minus the prompt.
 - [ ] ISC-14: A per-minute 429 is retried with backoff, and the job shows "waiting on rate limit" instead of failing.
 - [ ] ISC-14.1: A per-day quota 429 pauses the job with a plain message naming the provider and when to retry.
 - [ ] ISC-15: Killing the worker mid-job and restarting resumes the job from the last completed pass.
@@ -367,6 +367,11 @@ Why: measure quality on real articles before trusting or tuning prompts, the cal
   - The one participant type is Specter's `PARTICIPATED_IN`. Its target must be an Event and its source must not be. Specter's `event_candidate` flags and Pass 3 are gone.
   - Replies are validated item by item (ISC-63). A malformed item, an unknown id or a bad `PARTICIPATED_IN` end is dropped and counted. The drop is logged with its error type and field, never content. Unknown keys are ignored and key whitespace is stripped, because one live draw lost 64 of 67 Entities to an invented key.
 - 2026-10-07: **Verbatim sentences (S3 issue 02).** Matching folds curly and straight quotes and collapses whitespace, but the emitted `sentence` is the Document text's own slice, with `sentence_start` and `sentence_end` in Unicode code points, end exclusive. The first occurrence wins. `sentences_dropped` counts unfound sentences; `dropped` still counts items. `--text-file` reads bytes, so CRLF stays and offsets index the file's own characters.
+- 2026-10-09: **Output budget from each Provider's own models API (S3 issue 03).** This settles the spec-source fog. The worker looks the Model up once per run with the Provider's key: OpenRouter's `GET /api/v1/models` (`context_length`, `top_provider.max_completion_tokens`), and Gemini's `GET /v1beta/models/{model}` (`inputTokenLimit`, `outputTokenLimit`). Rejected: a curated file, which would rot as free Models come and go.
+  - Live on 2026-10-09: `nvidia/nemotron-3-super-120b-a12b:free` states 262,144 context and 235,929 max output; `gemini-flash-lite-latest` states 1,048,576 and 65,536. So max output binds on every real article, and the context cap only guards Models with small windows.
+  - The prompt is estimated at half its characters, rounded up, since these Models have no public tokenizer. That overestimates English (about 4 characters a token) and stays safe for denser scripts.
+  - A failed lookup does not stop the run: it logs one error line without key or body, and every call uses a fixed 16,384 tokens, the budget S2 shipped with.
+  - A reply whose `finish_reason` is `length` fails with the new reason `output_truncated` before its text is read, because a reply cut off while thinking can be empty. Both Providers report `length` the same way: a live call capped at 8 tokens gave `output_truncated` on each.
 
 ## Learning
 
@@ -409,4 +414,6 @@ Why: measure quality on real articles before trusting or tuning prompts, the cal
 - ISC-61: `uv run pytest -k two_pass_events` selected no tests at `5b2c172` (exit 5) and passes 14 after the build. Live on Gemini, `extract` ran both passes on two corpus bodies (28.9k and 33k characters) and one Insider URL: 31 to 63 Entities, 1 to 4 Events each with date and place, 22 to 38 Relationships, in 17 to 60 s.
 - ISC-63: `uv run pytest -k malformed_item` selected no tests at `00d683f` and passes 52 after the build. Breaking the log redaction, the dropped count or the `PARTICIPATED_IN` rule each turned a test red. Before the fix, 3 of 4 live Pass 1 replies failed whole on one garbled item.
 - ISC-44: `uv run pytest -k verbatim` had no tests at `e2598dc` and passes 31 after the build. Emitting the Model's wording, not folding quotes, and keeping a Proposal with no found sentence each turned tests red.
-- ISC-44.1: `uv run pytest -k offsets` had no tests at `e2598dc` and passes 9 after the build. An off-by-one end and translated newlines each turned tests red. A live check of offsets on a real article is still owed (PLAN Now).
+- ISC-44.1: `uv run pytest -k offsets` had no tests at `e2598dc` and passes 9 after the build. An off-by-one end and translated newlines each turned tests red. Live on Gemini on 2026-10-09, `extract --text-file` on two corpus bodies (16.9k and 33k characters) emitted 54 sentences, and every one equalled the Document text sliced at its offsets.
+- ISC-13: `uv run pytest -k output_budget` selected only the old fixed-cap test at `2c1b5ae`, which the build deletes, and passes 53 after it. Dropping the context cap and rounding the prompt estimate down each turned tests red. Live, both Providers' lookups returned their default Model's limits (Decisions, 2026-10-09).
+- ISC-12: `uv run pytest -k truncated` selected no tests at `2c1b5ae` and passes 7 after the build. Removing the `length` check turned all 7 red. Live, a call capped at 8 tokens failed as `output_truncated` on both OpenRouter and Gemini.

@@ -29,14 +29,6 @@ from pydantic_core import ErrorDetails
 
 _LOGGER = logging.getLogger(__name__)
 
-PASS1_MAX_TOKENS: Final = 16384
-"""The output-token budget for each pass's call, until S3 derives it from the Model.
-
-Specter's fixed 4,096 truncated a 28k-character article; the 2026-10-01 probe
-needed about 8k. Both default Models allow more: OpenRouter's
-nemotron-3-super lists 235,929, and Gemini's flash-lite alias 65,536.
-"""
-
 _NAME_MAX: Final = 200
 _SENTENCE_MAX: Final = 2_000
 

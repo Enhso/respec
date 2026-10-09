@@ -6,7 +6,6 @@ import orjson
 import pytest
 
 from respec_worker.extraction import (
-    PASS1_MAX_TOKENS,
     BadOutput,
     DocumentText,
     Grounded,
@@ -72,11 +71,6 @@ def test_a_placeholder_inside_the_document_text_is_left_alone() -> None:
     _, user = pass1_messages("a {body} and a {stray} brace")
 
     assert "a {body} and a {stray} brace" in user["content"]
-
-
-def test_the_output_budget_is_the_16k_cap() -> None:
-    """Specter's 4,096 truncated a long article; this budget does not."""
-    assert PASS1_MAX_TOKENS == 16384
 
 
 @pytest.mark.parametrize(

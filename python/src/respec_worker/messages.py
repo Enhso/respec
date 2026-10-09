@@ -21,6 +21,7 @@ Reason = Literal[
     "network",
     "fetch",
     "bad_output",
+    "output_truncated",
     "other",
 ]
 """Why a run failed, in terms the operator can act on."""

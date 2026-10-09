@@ -21,6 +21,10 @@ class ProviderSpec:
     """The name shown to the operator."""
     url: str
     """The OpenAI-compatible chat completions endpoint."""
+    models_url: str
+    """Where the Provider states a Model's limits, on the same host as ``url``.
+    ``{model}`` stands for the Model's URL-quoted name, where the endpoint
+    describes one Model; OpenRouter's lists them all."""
     key_env: str
     """The environment variable holding the Provider's key."""
     default_model: str
@@ -38,6 +42,7 @@ PROVIDERS: dict[Provider, ProviderSpec] = {
     "openrouter": ProviderSpec(
         label="OpenRouter",
         url="https://openrouter.ai/api/v1/chat/completions",
+        models_url="https://openrouter.ai/api/v1/models",
         key_env="OPENROUTER_API_KEY",
         # Free OpenRouter Models come and go and are often rate-limited
         # upstream. Chosen by live calls on 2026-10-02: this one answered
@@ -48,6 +53,7 @@ PROVIDERS: dict[Provider, ProviderSpec] = {
     "gemini": ProviderSpec(
         label="Google Gemini",
         url="https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
+        models_url="https://generativelanguage.googleapis.com/v1beta/models/{model}",
         key_env="GEMINI_API_KEY",
         # Flash-Lite answers in about a second where the full Flash Models took
         # 24 s or timed out on 2026-10-02. The alias follows the current one,

@@ -17,7 +17,7 @@ Worker progress messages: JSON Lines on the worker's stdout, one object per line
 
 - `provider` is `openrouter` or `gemini`, the same strings as `src/keys.rs`.
 - `stage` is one of `fetching`, `calling_model`, `waiting_rate_limit`. There is a `progress_*.json` fixture for each.
-- `reason` is one of `auth`, `quota`, `rate_limit`, `model_unavailable`, `network`, `fetch`, `bad_output`, `other`. There is a `failed_*.json` fixture for each. `fetch` means the article could not be fetched or read, or had no body; `bad_output` means the Model's reply was not valid Pass 1 or Pass 2 JSON.
+- `reason` is one of `auth`, `quota`, `rate_limit`, `model_unavailable`, `network`, `fetch`, `bad_output`, `output_truncated`, `other`. There is a `failed_*.json` fixture for each. `fetch` means the article could not be fetched or read, or had no body; `bad_output` means the Model's reply was not valid Pass 1 or Pass 2 JSON; `output_truncated` means the reply stopped at its output-token limit (`finish_reason` `length`), so it was never parsed.
 - `done`, `entities` and `relationships` end a run successfully and `failed` ends it unsuccessfully. The server keeps the last of these as the outcome. A `test-extraction` run ends with `entities`. An `extract` run sends `entities` after Pass 1 and ends with `relationships`, or with `failed` if Pass 2 goes wrong.
 
 ### Sentences and offsets

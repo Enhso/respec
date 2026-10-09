@@ -139,10 +139,20 @@ def _retry_after(response: httpx.Response) -> float | None:
 
 
 def _reply_text(provider: Provider, response: httpx.Response) -> str:
+    finish_reason = reply = None
     try:
-        reply = orjson.loads(response.content)["choices"][0]["message"]["content"]
-    except (orjson.JSONDecodeError, KeyError, IndexError, TypeError):
-        reply = None
+        choice = orjson.loads(response.content)["choices"][0]
+        finish_reason = choice.get("finish_reason")
+        reply = choice["message"]["content"]
+    except (orjson.JSONDecodeError, KeyError, IndexError, TypeError, AttributeError):
+        pass
+    # Checked before the text: a reply cut off in its thinking can be empty.
+    if finish_reason == "length":
+        raise ChatFailure(
+            "output_truncated",
+            "The Model's reply was cut off at its output limit; try a shorter "
+            "article, or later with another Model.",
+        )
     if isinstance(reply, str) and reply.strip():
         return reply.strip()
     raise ChatFailure(

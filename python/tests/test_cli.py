@@ -12,9 +12,10 @@ from typing import get_args
 import httpx
 import orjson
 import pytest
+from model_specs import spec_response
 
+from respec_worker.budget import FALLBACK_MAX_TOKENS
 from respec_worker.cli import main
-from respec_worker.extraction import PASS1_MAX_TOKENS
 from respec_worker.fetch import fetch_article
 from respec_worker.messages import (
     MESSAGE_ADAPTER,
@@ -177,9 +178,16 @@ def _chat_reply(content: str) -> httpx.Response:
     return httpx.Response(200, json={"choices": [{"message": {"content": content}}]})
 
 
+SPEC_CONTEXT_WINDOW = 1_048_576
+SPEC_MAX_OUTPUT = 65_536
+"""The limits the fake Provider states for its default Model: roomy, so a small
+prompt leaves the max output as the budget."""
+
+
 class Network:
     """A fake network: the article site serves one page, and the Provider
-    answers the queued responses in turn (the last one repeats)."""
+    answers a Model-spec lookup with the limits above (or ``spec_answer``) and a
+    chat call with the queued responses in turn (the last one repeats)."""
 
     def __init__(
         self, *chat_responses: httpx.Response, page: str = "campaign_documents"
@@ -187,11 +195,25 @@ class Network:
         self.chat_responses = list(chat_responses)
         self.page = (ARTICLES / f"{page}.html").read_text(encoding="utf-8")
         self.article_status = 200
+        self.spec_limits = (SPEC_CONTEXT_WINDOW, SPEC_MAX_OUTPUT)
+        self.spec_answer: httpx.Response | None = None
         self.requests: list[httpx.Request] = []
 
     @property
     def chat_requests(self) -> list[httpx.Request]:
-        return [r for r in self.requests if r.url.host != "news.example"]
+        return [
+            r
+            for r in self.requests
+            if r.url.host != "news.example" and r.method == "POST"
+        ]
+
+    @property
+    def spec_requests(self) -> list[httpx.Request]:
+        return [
+            r
+            for r in self.requests
+            if r.url.host != "news.example" and r.method == "GET"
+        ]
 
     @property
     def transport(self) -> httpx.MockTransport:
@@ -201,6 +223,16 @@ class Network:
         self.requests.append(request)
         if request.url.host == "news.example":
             return httpx.Response(self.article_status, text=self.page)
+        if request.method == "GET":
+            if self.spec_answer is not None:
+                return self.spec_answer
+            provider: Provider = (
+                "openrouter"
+                if request.url.host == PROVIDERS["openrouter"].host
+                else "gemini"
+            )
+            model = PROVIDERS[provider].default_model
+            return spec_response(provider, model, *self.spec_limits)
         queue = self.chat_responses
         return queue.pop(0) if len(queue) > 1 else queue[0]
 
@@ -307,7 +339,7 @@ def test_test_extraction_fetches_calls_once_and_reports_the_proposals(
     assert request.headers["authorization"] == f"Bearer {KEY}"
     body = orjson.loads(request.content)
     assert body["model"] == spec.default_model
-    assert body["max_tokens"] == PASS1_MAX_TOKENS == 16384
+    assert body["max_tokens"] == SPEC_MAX_OUTPUT
     system, user = body["messages"]
     assert system["role"] == "system" and "Pass 1" in system["content"]
     assert user["role"] == "user" and "Halvard Centre" in user["content"]
@@ -703,14 +735,14 @@ def test_two_pass_events_each_pass_gets_its_own_prompt_and_the_whole_budget(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """Pass 1 sees only the article; Pass 2 sees the stamped ids and names and
-    the article; both are sent with the system prompt and the fixed budget."""
+    the article; both are sent with the system prompt and the Model's max output."""
     network = _shipment_network()
 
     _extract_command(network, capsys, monkeypatch, "--url", SHIPMENT_URL)
 
     first, second = (orjson.loads(r.content) for r in network.chat_requests)
     for body in (first, second):
-        assert body["max_tokens"] == PASS1_MAX_TOKENS
+        assert body["max_tokens"] == SPEC_MAX_OUTPUT
         system, user = body["messages"]
         assert (
             system["role"] == "system" and "Pass 2 — Relationships" in system["content"]
@@ -753,7 +785,7 @@ def test_two_pass_events_the_text_file_is_the_document_text(
     entities = messages[1]
     assert isinstance(entities, Entities)
     assert entities.document == DocumentSummary(url=None, title=None, chars=len(text))
-    assert [r.url.host for r in network.requests] == [PROVIDERS["gemini"].host] * 2
+    assert [r.url.host for r in network.requests] == [PROVIDERS["gemini"].host] * 3
     first = orjson.loads(network.chat_requests[0].content)
     assert f"<<<BODY>>>\n{text}\n<<<END BODY>>>" in first["messages"][1]["content"]
 
@@ -1370,3 +1402,191 @@ def test_offsets_count_code_points_in_the_messages(
     (entity,) = found.entities
     assert (entity.sentence_start, entity.sentence_end) == (2, 29)
     assert found.document.chars == 29
+
+
+# ---- output budget (ISC-13) ----
+
+
+def _call_budget(request: httpx.Request) -> tuple[int, int]:
+    """The `max_tokens` a chat request carries, and the prompt estimate for
+    its messages: half their characters, rounded up."""
+    body = orjson.loads(request.content)
+    characters = sum(len(m["content"]) for m in body["messages"])
+    return body["max_tokens"], (characters + 1) // 2
+
+
+def test_output_budget_each_pass_gets_the_smaller_of_max_output_and_room_left(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """With a context window that binds, each pass's `max_tokens` is the window
+    minus that pass's own prompt estimate, so Pass 2, whose prompt also holds
+    the entities, gets the smaller budget; with a small max output, both get it."""
+    network = _shipment_network()
+    network.spec_limits = (30_000, SPEC_MAX_OUTPUT)
+
+    code, _ = _extract_command(network, capsys, monkeypatch, "--url", SHIPMENT_URL)
+
+    assert code == 0
+    (first, first_prompt), (second, second_prompt) = (
+        _call_budget(r) for r in network.chat_requests
+    )
+    assert first == 30_000 - first_prompt
+    assert second == 30_000 - second_prompt
+    assert second < first < SPEC_MAX_OUTPUT
+
+    network = _shipment_network()
+    network.spec_limits = (SPEC_CONTEXT_WINDOW, 4_000)
+
+    _extract_command(network, capsys, monkeypatch, "--url", SHIPMENT_URL)
+
+    assert [_call_budget(r)[0] for r in network.chat_requests] == [4_000, 4_000]
+
+
+@pytest.mark.parametrize("provider", get_args(Provider))
+def test_output_budget_spec_is_looked_up_once_per_run_before_the_first_call(
+    provider: Provider,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """One lookup, to the Provider's host with its key, then both passes; the
+    article site is never asked for the Model's limits."""
+    spec = PROVIDERS[provider]
+    network = _shipment_network()
+    monkeypatch.setenv(spec.key_env, KEY)
+
+    code = main(
+        ["extract", "--provider", provider, "--url", SHIPMENT_URL],
+        transport=network.transport,
+        sleep=lambda seconds: None,
+    )
+
+    capsys.readouterr()
+    assert code == 0
+    (lookup,) = network.spec_requests
+    assert lookup.url.host == spec.host
+    assert len(network.chat_requests) == 2
+    methods = [r.method for r in network.requests if r.url.host != "news.example"]
+    assert methods == ["GET", "POST", "POST"]
+
+
+@pytest.mark.parametrize("provider", get_args(Provider))
+def test_output_budget_test_extraction_uses_the_specs_limits(
+    provider: Provider,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The one-call command sizes its call the same way, on either Provider."""
+    network = Network(_chat_reply(REPLY), page="campaign_documents")
+    network.spec_limits = (20_000, SPEC_MAX_OUTPUT)
+
+    code, _ = _extract(network, capsys, monkeypatch, provider)
+
+    assert code == 0
+    (lookup,) = network.spec_requests
+    assert lookup.url.host == PROVIDERS[provider].host
+    (request,) = network.chat_requests
+    budget, prompt = _call_budget(request)
+    assert budget == 20_000 - prompt
+
+
+def test_output_budget_failed_lookup_runs_on_with_the_fixed_budget_and_logs_it(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A Provider that cannot give the spec does not stop the run: every call
+    carries 16,384, and one error line says so, without the key or the body."""
+    network = _shipment_network()
+    network.spec_answer = httpx.Response(500, text=f"RAW-BODY {KEY}")
+
+    code, messages = _extract_command(
+        network, capsys, monkeypatch, "--url", SHIPMENT_URL
+    )
+
+    assert code == 0 and isinstance(messages[-1], Relationships)
+    assert [_call_budget(r)[0] for r in network.chat_requests] == [
+        FALLBACK_MAX_TOKENS
+    ] * 2
+    (record,) = [r for r in caplog.records if r.levelname == "ERROR"]
+    assert "HTTP 500" in record.getMessage()
+    assert KEY not in caplog.text and "RAW-BODY" not in caplog.text
+
+
+def test_output_budget_lookup_error_reaches_stderr_with_no_logging_set_up() -> None:
+    """The worker configures no logging, yet the error line for a failed lookup
+    reaches stderr, which the server logs, and holds neither key nor body."""
+    code = (
+        "import httpx; from respec_worker.budget import lookup_model_spec; "
+        "lookup_model_spec('gemini', 'KEY-0123456789', 'm', transport="
+        "httpx.MockTransport(lambda r: httpx.Response(500, text='RAW-BODY')))"
+    )
+
+    result = subprocess.run(
+        [sys.executable, "-c", code], capture_output=True, check=False
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert b"Could not look up the output limits of m on Google Gemini" in result.stderr
+    assert b"KEY-0123456789" not in result.stderr and b"RAW-BODY" not in result.stderr
+    assert result.stdout == b""
+
+
+# ---- a reply cut off at the limit (ISC-12) ----
+
+TRUNCATED_REPLY = ARTICLES.parent / "replies" / "truncated_pass1.json"
+
+
+def _truncated() -> httpx.Response:
+    """A 200 whose first choice stopped at the output-token limit."""
+    return httpx.Response(200, content=TRUNCATED_REPLY.read_bytes())
+
+
+def test_truncated_pass_1_fails_as_output_truncated_and_never_as_bad_output(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The cut-off reply is not parsed: the run ends with `output_truncated`,
+    no entities are reported, and Pass 2 is never called."""
+    network = Network(_truncated(), page="shipment_trace")
+
+    code, messages = _extract_command(
+        network, capsys, monkeypatch, "--url", SHIPMENT_URL
+    )
+
+    assert code == 1
+    final = messages[-1]
+    assert isinstance(final, Failed)
+    assert final.reason == "output_truncated"
+    assert "cut off" in final.message and final.message.endswith(".")
+    assert not any(isinstance(m, Entities) for m in messages)
+    assert len(network.chat_requests) == 1
+
+
+def test_truncated_pass_2_fails_as_output_truncated_after_the_entities(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Pass 1's entities stand; the run still ends with `output_truncated`."""
+    network = Network(
+        _json_reply(entities=SHIPMENT_ENTITIES), _truncated(), page="shipment_trace"
+    )
+
+    code, messages = _extract_command(
+        network, capsys, monkeypatch, "--url", SHIPMENT_URL
+    )
+
+    assert code == 1
+    assert [m.kind for m in messages if m.kind != "progress"] == ["entities", "failed"]
+    final = messages[-1]
+    assert isinstance(final, Failed) and final.reason == "output_truncated"
+
+
+def test_truncated_test_extraction_fails_as_output_truncated(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The one-call command reports truncation the same way."""
+    network = Network(_truncated(), page="campaign_documents")
+
+    code, messages = _extract(network, capsys, monkeypatch)
+
+    assert code == 1
+    final = messages[-1]
+    assert isinstance(final, Failed) and final.reason == "output_truncated"

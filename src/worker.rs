@@ -217,6 +217,9 @@ pub enum FailureReason {
     Fetch,
     /// The Model's reply was not valid Pass 1 or Pass 2 JSON.
     BadOutput,
+    /// The Model's reply was cut off at its output limit, so it was not
+    /// finished.
+    OutputTruncated,
     /// Anything else.
     Other,
 }
@@ -461,6 +464,7 @@ mod tests {
                 "network",
                 "fetch",
                 "bad_output",
+                "output_truncated",
                 "other"
             ])
         );

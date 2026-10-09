@@ -10,13 +10,13 @@ Estimates are in sessions. Dates depend on weekly capacity (see the end).
 
 ## Now
 
-- **Stopped mid-S3 on 2026-10-07 for usage limits.** Issues 01, 02 and 04 are done (ISC-44, 44.1, 54, 61, 63 closed). Resume in this order:
-  1. **Issue 03** (output budget and truncation, ISC-12, 13): a builder had it almost done in the worktree `.claude/worktrees/agent-aa296673a5509ad19`, saved as one unverified WIP commit on branch `worktree-agent-aa296673a5509ad19`. Review it against `.scratch/s3-worker/issues/03-output-budget-and-truncation.md`, re-run every gate and the live spec lookups, then merge into `main`. Expect conflicts in `messages.py`, `cli.py`, the tests and the fixtures, because issue 02 landed first. Record the spec numbers in the ISA (it settles the spec-source fog), then `git worktree remove` it and delete the branch.
-  2. **Owed live check for issue 02:** run `extract --text-file` on a corpus body and confirm every emitted `sentence` equals the Document text sliced at `sentence_start:sentence_end`. Gemini answered 503 (overloaded) twice today; retry later if so.
-  3. **Issues 05 and 06** wait for pairing call 1. Issue 06 carries a note on Gemini 503s. S3 then closes once ISC-17's worker side is checked.
+- **S3 is blocked on the friend, 2026-10-09.** Issues 01 to 04 are done: ISC-12, 13, 44, 44.1, 54, 61 and 63 are closed, and the live offset check for issue 02 passed. What is left:
+  1. **Issues 05 and 06** (ISC-14, 14.1, 52, 53) wait for pairing call 1, because his accounts may change how the quota pause and fallback should work. Issue 06 carries a note on Gemini 503s.
+  2. **ISC-17's worker side** is checked after them, since both add message shapes. S3 closes then.
+- **Open decision for Hatim:** start S4 (gate A) while the call is pending? It runs on the worker alone and needs none of his accounts. It is also the kill switch, so a weak result would make issues 05 and 06 moot. The Rules say open claims come first, but these are blocked from outside. If yes, S4 should first look at what the verbatim check drops: one live run on 2026-10-09 dropped 2 of 25 Entities as unfound, and a matcher that is too strict would lower recall.
 - **Waiting on:** the friend's reply and his OpenRouter and Gemini accounts, for pairing call 1 (`.scratch/s2-tracer-to-his-mac/issues/06-pairing-call-1.md`).
 - **The install command:** `curl -fsSL https://raw.githubusercontent.com/Enhso/respec/main/install.sh | bash`, run in Terminal and never downloaded through a browser. `v0.2.0` is the release he installs.
-- **Run the worker:** `uv run --frozen --directory python --env-file ../.env respec-worker extract --provider gemini --text-file ../corpus/bodies/<id>.txt` (or `--url <url>`). Expect 25 to 63 Entities and 18 to 38 Relationships in 15 to 60 s.
+- **Run the worker:** `uv run --frozen --directory python --env-file ../.env respec-worker extract --provider gemini --text-file ../corpus/bodies/<id>.txt` (or `--url <url>`). Expect 10 to 63 Entities and 6 to 38 Relationships in 5 to 60 s, more on longer articles.
 - **Agents:** up to 2 Sonnet and 4 Haiku at once (`OPERATIONAL_RULES` § Model selection). Commits carry no Co-Authored-By trailer (a hook rejects it).
 - **Gates:** CI runs rust, python, web and isolation on every push. On `v*` tags and manual runs it also runs `release` on macOS. When the web app gains tests, add them to `scripts/test-isolation.sh`.
 
