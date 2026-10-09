@@ -54,10 +54,12 @@ RelationshipType = Literal[
     "REGISTERED_TO",
     "FLAGGED_BY",
     "DOCUMENTS",
+    "SUPPLIED",
 ]
 """The types Pass 2 may propose: Specter's extractable list, which leaves out the
-structural types its routes wrote. ``PARTICIPATED_IN`` links a participant to an
-Event."""
+structural types its routes wrote, and ``SUPPLIED`` for the trade links that
+investigations trace (added at gate A). ``PARTICIPATED_IN`` links a participant
+to an Event."""
 
 DatePrecision = Literal["exact", "day", "month", "year", "range", "unknown"]
 """How exactly a date is known, as in Specter."""

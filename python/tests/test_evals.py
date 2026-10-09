@@ -20,13 +20,14 @@ from respec_worker.evals import (
     event_spans,
     lint,
     name_tokens,
+    prompt_version,
     read_run,
     recalled_keys,
     run_model,
     score_article,
     score_run,
 )
-from respec_worker.extraction import DocumentText
+from respec_worker.extraction import DocumentText, load_prompt
 from respec_worker.messages import (
     DocumentSummary,
     Entities,
@@ -409,6 +410,19 @@ def test_evals_lint_finds_a_name_whatever_its_accents_and_case() -> None:
 
 
 # ---- the run cache ----
+
+
+def test_evals_runs_are_kept_by_prompt_version(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Changing any prompt file changes the folder its runs go in."""
+    before = prompt_version()
+    original = load_prompt
+    monkeypatch.setattr(
+        "respec_worker.evals.load_prompt",
+        lambda name: original(name) + ("!" if name == "pass2_relationships.md" else ""),
+    )
+
+    assert len(before) == 8
+    assert prompt_version() != before
 
 
 def _stdout(*messages: Entities | Relationships | Failed) -> bytes:

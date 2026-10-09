@@ -7,7 +7,8 @@ Labels and runs stay on this machine (`.gitignore`). Labels name real people and
 ## Layout
 
 - `labels/<corpus id>.json`: one label file per eval article. The body is `corpus/bodies/<corpus id>.txt`.
-- `runs/<model>/<corpus id>/<n>.jsonl`: one cached `extract` run, its progress messages as the worker emitted them. Scoring reads these, so correcting a label never costs a Model call.
+- `runs/<prompt hash>/<model>/<corpus id>/s<n>.jsonl`: one cached `extract` run, its progress messages as the worker emitted them, and `log.jsonl` beside it for every attempt. Scoring reads these, so correcting a label never costs a Model call. The prompt hash covers the three prompt files, so a changed prompt never reuses old runs.
+- `articles.txt`: the eval set. `dev.txt`: the four articles prompt changes may be tuned on; the other eight are held out, so a prompt fitted to the eval shows up as a gap between the two.
 
 ## Commands
 
@@ -17,6 +18,8 @@ Run from `python/`:
 uv run --frozen python -m respec_worker.evals lint            # check every label file
 uv run --frozen --env-file ../.env python -m respec_worker.evals run --provider gemini --model gemini-flash-lite-latest
 uv run --frozen python -m respec_worker.evals score           # recall per Model
+uv run --frozen python -m respec_worker.evals score --articles ../evals/dev.txt
+uv run --frozen python -m respec_worker.evals review          # pages for checking labels
 ```
 
 ## Label file

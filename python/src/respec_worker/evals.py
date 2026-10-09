@@ -9,6 +9,7 @@ the rules are in ``evals/README.md``. Run it from ``python/``.
 
 import argparse
 import datetime
+import hashlib
 import re
 import statistics
 import subprocess
@@ -36,6 +37,7 @@ from respec_worker.extraction import (
     EntityLabel,
     PartialDate,
     RelationshipType,
+    load_prompt,
 )
 from respec_worker.messages import (
     MESSAGE_ADAPTER,
@@ -66,6 +68,8 @@ _REPO: Final = Path("..")
 ARTICLES_FILE: Final = _REPO / "evals" / "articles.txt"
 LABELS_DIR: Final = _REPO / "evals" / "labels"
 RUNS_DIR: Final = _REPO / "evals" / "runs"
+"""Runs live under ``RUNS_DIR / prompt_version()``, so a changed prompt never
+reuses runs made with another."""
 BODIES_DIR: Final = _REPO / "corpus" / "bodies"
 DOCUMENTS_FILE: Final = _REPO / "corpus" / "documents.jsonl"
 REVIEW_DIR: Final = _REPO / "evals" / "review"
@@ -234,6 +238,18 @@ def _lint_command(paths: list[Path], bodies: Path) -> int:
         f"{LONG_ARTICLE_CHARS:,} characters, {failed} with problems"
     )
     return 1 if failed else 0
+
+
+PROMPTS: Final = ("system.md", "pass1_entities.md", "pass2_relationships.md")
+
+
+def prompt_version() -> str:
+    """A short hash of the prompt files: the folder that runs made with these
+    prompts are kept in."""
+    digest = hashlib.sha256()
+    for name in PROMPTS:
+        digest.update(load_prompt(name).encode("utf-8"))
+    return digest.hexdigest()[:8]
 
 
 def model_folder(model: str) -> str:
@@ -649,10 +665,14 @@ def report(
 
 
 def _score_command(
-    runs: Path, labels_dir: Path, bodies: Path, models: list[str]
+    runs: Path,
+    labels_dir: Path,
+    bodies: Path,
+    models: list[str],
+    articles: Path | None,
 ) -> int:
     """Score every Model with runs (or only ``models``) on every labelled
-    article, and print the reports."""
+    article (or only those listed in ``articles``), and print the reports."""
     folders = sorted(p for p in runs.iterdir() if p.is_dir()) if runs.exists() else []
     if models:
         wanted = {model_folder(m) for m in models}
@@ -662,6 +682,10 @@ def _score_command(
         print("Nothing to score: no runs or no label files.")
         return 1
     labelled = [load_labels(path) for path in label_files]
+    if articles is not None:
+        listed = set(read_articles(articles))
+        labelled = [labels for labels in labelled if labels.article in listed]
+    print(f"Runs in {runs}")
     texts = {labels.article: read_body(bodies, labels.article) for labels in labelled}
     for folder in folders:
         results = [
@@ -691,8 +715,13 @@ def main(argv: list[str] | None = None) -> int:
     score_parser.add_argument("models", nargs="*")
     for sub in (run_parser, score_parser):
         sub.add_argument("--bodies", type=Path, default=BODIES_DIR)
-        sub.add_argument("--runs", type=Path, default=RUNS_DIR)
+        sub.add_argument(
+            "--runs", type=Path, help="default: evals/runs/<the prompts' hash>"
+        )
     score_parser.add_argument("--labels", type=Path, default=LABELS_DIR)
+    score_parser.add_argument(
+        "--articles", type=Path, help="score only the articles listed in this file"
+    )
     review_parser = commands.add_parser(
         "review", help="write pages for checking the label files"
     )
@@ -700,6 +729,8 @@ def main(argv: list[str] | None = None) -> int:
     review_parser.add_argument("--bodies", type=Path, default=BODIES_DIR)
     review_parser.add_argument("--out", type=Path, default=REVIEW_DIR)
     args = parser.parse_args(argv)
+    if args.command in ("run", "score") and args.runs is None:
+        args.runs = RUNS_DIR / prompt_version()
     if args.command == "lint":
         return _lint_command(args.paths, args.bodies)
     if args.command == "run":
@@ -721,7 +752,9 @@ def main(argv: list[str] | None = None) -> int:
             say=lambda line: print(line, flush=True),
         )
     if args.command == "score":
-        return _score_command(args.runs, args.labels, args.bodies, args.models)
+        return _score_command(
+            args.runs, args.labels, args.bodies, args.models, args.articles
+        )
     if args.command == "review":
         from respec_worker.review import write_review  # it imports this module
 

@@ -490,11 +490,12 @@ def test_a_relationship_may_carry_partial_dates() -> None:
         "REGISTERED_TO",
         "FLAGGED_BY",
         "DOCUMENTS",
+        "SUPPLIED",
     ],
 )
 def test_every_extractable_relationship_type_validates(type_: str) -> None:
-    """Specter's fifteen extractable types; `PARTICIPATED_IN` links a participant
-    to an Event."""
+    """Specter's fifteen extractable types and `SUPPLIED`; `PARTICIPATED_IN`
+    links a participant to an Event."""
     (link,) = parse_pass2(_links(_link(type=type_))).relationships
 
     assert link.type == type_
