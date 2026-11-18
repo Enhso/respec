@@ -63,7 +63,7 @@ uv run --frozen python -m respec_worker.evals review          # pages for checki
 - `sentences` and `sentence` are copied character for character from the body file; `lint` fails otherwise. One or two per Entity, one to three per Event (the sentences that report it happening), one per Relationship.
 - `types` lists every Relationship type a fair reviewer would accept for the link, usually one or two. The types and their meanings are in `python/src/respec_worker/prompts/system.md`. A participant links to an Event with `PARTICIPATED_IN`, from the participant to the Event.
 - `notes` is optional: the drafter's doubts for the check, such as an Entity left out as not key, or a link the article only implies.
-- `checked` becomes true only after the principal's check.
+- `checked` becomes true only after adjudication (see Checking labels).
 
 ## What is key
 
@@ -83,4 +83,6 @@ Each Model runs three samples per article. Recall is micro-averaged over every l
 
 ## Checking labels
 
-Open the review page (`uv run --frozen python -m respec_worker.evals review`, then open the HTML file it names). It shows the article with every labelled name highlighted. Ask first what is missing, then what is wrong. Missing items cost recall that no Model can earn, and a check that starts with the draft anchors on it.
+Labels are checked by a blind second labelling, not by hand (Decisions, 2026-11-18). A second Claude agent labels each article from this guide and the body alone, without seeing the first set. An adjudicator then gets both sets as "set 1" and "set 2", in random order, and settles every item they disagree on by "What is key". An item both sets have is kept unless it is plainly wrong. The adjudicator writes the final file with `checked: true` and records each decision with a one-line reason, so the principal can spot-check a small sample. The first draft and the blind set stay beside the final labels, in `labels-draft/` and `labels-blind/`.
+
+To read one article's labels against its text, open the review page (`uv run --frozen python -m respec_worker.evals review`, then the HTML file it names). Ask first what is missing, then what is wrong: missing items cost recall that no Model can earn.

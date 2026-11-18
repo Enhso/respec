@@ -3,9 +3,9 @@ task: "Respec: rebuild Specter local-first and prove the loop"
 slug: 20261001-respec
 project: respec
 phase: climbing
-progress: 15/67
+progress: 21/67
 started: 2026-10-01T19:12:36Z
-updated: 2026-10-07T00:00:00Z
+updated: 2026-11-18T00:00:00Z
 principal_stated_goal: "we'll build a new fork of it keeping only essential and reusable items (if any) and start from scratch"
 principal_stated_goal_source: conversation
 principal_stated_goal_signal: 4
@@ -120,13 +120,13 @@ Why: one pasted article travels the whole pipeline on a free model before anythi
 - [ ] ISC-11: Every article in the five-article smoke set (one is over 20k characters) yields at least one relationship proposal whose sentence is verified in the document text, through the running app on a free model. (after: ISC-9)
 - [x] ISC-12: Anti: a model reply cut off by the output-token cap is reported as `output_truncated`, never as a parse error.
 - [x] ISC-13: The output-token budget for each call is the model's max-output spec, capped at its context window minus the prompt.
-- [ ] ISC-14: A per-minute 429 is retried with backoff, and the job shows "waiting on rate limit" instead of failing.
-- [ ] ISC-14.1: A per-day quota 429 pauses the job with a plain message naming the provider and when to retry.
+- [x] ISC-14: A per-minute 429 is retried with backoff, and the job shows "waiting on rate limit" instead of failing.
+- [x] ISC-14.1: A per-day quota 429 pauses the job with a plain message naming the provider and when to retry.
 - [ ] ISC-15: Killing the worker mid-job and restarting resumes the job from the last completed pass.
 - [ ] ISC-16: The UI shows each job's state (queued, fetching, pass n of N, done, failed with reason) without a page reload.
 - [ ] ISC-17: The Rust and Python test suites both validate the same contract fixtures in `contracts/fixtures/`.
-- [ ] ISC-52: When the selected model still fails after retries, the job falls through an ordered list of fallback models across providers.
-- [ ] ISC-53: Every failure class (auth, daily quota, rate limit, model gone, truncated, network) maps to a plain-language message with a next step.
+- [x] ISC-52: When the selected model still fails after retries, the job falls through an ordered list of fallback models across providers.
+- [x] ISC-53: Every failure class (auth, daily quota, rate limit, model gone, truncated, network) maps to a plain-language message with a next step.
 - [x] ISC-54: Anti: no request to Gemini carries prompt-caching directives (Specter's cached-content calls hit a zero quota).
 - [ ] ISC-55: Jobs run one at a time, in submission order.
 - [x] ISC-61: Extraction makes two passes per article: pass 1 proposes entities, Events included (with date and place), and pass 2 proposes relationships, including participants to Events. There is no third pass.
@@ -386,6 +386,21 @@ Why: measure quality on real articles before trusting or tuning prompts, the cal
 - 2026-10-09: **No chunking (S4), settling the fog.** On the 5 long articles (Flash-Lite, new prompt, 3 samples each), asking Pass 2 once per 8k-character part raised key Relationship recall only from 0.34 to 0.36. Long articles' Entities (0.86) hold up, so their Relationship gap is not context length. `--pass2-chunk-chars` stays as an off-by-default option for later experiments. The same runs showed Event recall at 0.67 and 0.48 across two independent sets of 3 samples, a step chunking does not touch: differences under about 0.15 on this eval are noise.
 - 2026-10-09: **One matching rule, loosened (S4).** A Model's sentence matches the Document text when it is the same once curly quotes are straight, letters are lower case, and an ellipsis at either end is dropped. Whitespace counts only between two letters or digits, as one space. Every word, punctuation mark and space between two words must still be there, and the emitted sentence is still the Document text's own slice. None of these can admit a fabricated sentence; the cost is that a cut-off quote is staged as the part that was found.
 - 2026-10-09: **Fetch keeps inline markup in its sentence (S4, the principal's call to fix it now rather than in S6).** The body is one line per block element or `<br>`, and links and emphasis join the text around them as written. Specter's port joined every text node with a line break, so `<a>LLC Varnas Trade</a>, and` became `LLC Varnas Trade` on its own line before `, and`, and a word split by markup broke in two. The corpus bodies carry that artifact, so the evals still exercise the matching rule above.
+- 2026-11-18: **No pairing call 1 (the principal's call).** The Operator installed `v0.2.0` on his own Mac with the one command and reports no problems. What that does not prove: a real-sized extraction on his keys (ISC-45), the bookmark after a reboot (early ISC-39), and whether he would review a Proposal list. Those move to a short message he answers on his own after the next release. S3 issues 05 and 06 lose their blocker.
+- 2026-11-18: **Minimal oversight (the principal's call).** Anything the principal would check is either a very small sample or delegated to a blind Model. For labels (S4 now, S9 later), a second Claude labeller labels each article without seeing the draft, and an adjudicator settles every disagreement. The adjudicator sees the two sets as "set 1" and "set 2" in random order, so it cannot favour the draft. `checked` now means adjudicated. The principal may spot-check a sample of 10 adjudication decisions.
+- 2026-11-18: **Target v1 by 2026-12-31, at 7 or more sessions a week (the principal's call).**
+- 2026-11-18: **Eval Models replaced (S4).** OpenRouter dropped `nvidia/nemotron-3-super-120b-a12b:free` (404 on 2026-11-18). That forces a new OpenRouter default ahead of S11's Model choice, since `v0.2.0`'s OpenRouter test call now fails. Of the free Models that answered a small call, `nvidia/nemotron-3.5-super-vl:free` and `nvidia/nemotron-3-ultra-550b-a55b:free` each completed both passes on the 28k-character article that broke the old default: 374 s and 572 s, with similar recall on one sample. `inclusionai/ling-3.2-flash:free` dropped its connection twice and then hung. Super-VL becomes the default and the eval's OpenRouter Model.
+  - Gemini Flash is out of the comparison. `gemini-flash-latest` resolves to `gemini-3.8-flash`, which its quota error names, and that Model's free tier allows 20 requests a day. It answered a one-word call, but real-sized calls returned 503 on 2026-10-09 and again on 2026-11-18.
+  - The `-latest` aliases do not report the Model behind them. A rerun of Flash-Lite 6 weeks after the first, on the same prompt and labels, scored 0.90, 0.52 and 0.43 (Entities, Events, Relationships) against 0.89, 0.62 and 0.45: within the noise measured on 2026-10-09. The gate pools both sets of runs (72 samples).
+- 2026-11-18: **Quota, outages and fallback in the worker (S3 issues 05 and 06).**
+  - A Gemini 429 is per-day when a `QuotaFailure` violation's `quotaId` contains `PerDay`, and its `RetryInfo.retryDelay` gives the retry time. The OpenAI-compatible endpoint wraps the error in a JSON array. An OpenRouter 429 is per-day when its message contains `free-models-per-day`, with `X-RateLimit-Reset` in its metadata; that shape follows OpenRouter's documentation and is not yet seen live.
+  - New reasons: `daily_quota` is never retried and carries `retry_at` (UTC). `overloaded` (HTTP 503) takes the per-minute 429 backoff, with its own stage `waiting_overloaded`. refined: ISC-14.1's worker ends the run as `failed` with `daily_quota` and `retry_at`, and the S6 job runner turns that into a paused job.
+  - An OpenRouter 403 whose message does not mention a key is `model_unavailable`. A 401, and a Gemini 403, stay `auth`.
+  - Every reason takes its message from one table in `messages.py` (why, then next step). A test walks every reason, so a new reason without a message fails.
+  - `extract --fallback` is opt-in, so the evals never mix Models in one score. A pass whose Model still fails after its retries moves down `FALLBACK_MODELS`, except on `fetch`. Models that already failed in the run are skipped, and Providers without a key are skipped. Pass 2 may run on another Model than Pass 1. A `falling_back` progress message names the Model, its reason and the next Model, and `entities` and `relationships` carry the Provider and Model that produced them. When every Model fails, the message names each Model and why. The reason is `daily_quota` with the earliest retry time if every Model hit its daily quota; otherwise it is the last Model's reason.
+  - The list, until settings exist: Flash-Lite, then `nvidia/nemotron-3.5-super-vl:free`, then `nvidia/nemotron-3-ultra-550b-a55b:free`. `gemma-4-31b-it` was dropped after it returned `bad_output` at 381 s on the 28k article. No third family is confirmed, so the last two share one.
+  - Each call has a total deadline of 600 s, past which it fails as `network`, because a per-read timeout let a trickling Provider hold a call open (Learning, 2026-11-18).
+  - Passing both Providers' keys to the worker is S6 work (the job runner). The stub page's test extraction still runs one Provider.
 
 ## Learning
 
@@ -419,6 +434,18 @@ Why: measure quality on real articles before trusting or tuning prompts, the cal
   - refuted by: four live runs of `gemini-flash-lite-latest` on eval articles on 2026-10-09. 30 of 232 sentences were not found, and one 6k-character article lost 13 of its 27 Entities. 28 of the 30 came from a space our own fetch left before the punctuation after a link, which the Model's copy did not have; one had a leading ellipsis and one a capitalised clause start.
   - learned: the drop rate depends on the article's link density, and the cause was our fetch, not the Model. A strict rule on a messy text is a recall cut that looks like Model weakness.
   - criterion now: ISC-44 (the loosened rule), and the fetch fix (Decisions, 2026-10-09). Under the new rule all 232 sentences are found and slice back exactly.
+- conjectured: a default free Model chosen by live calls stays available between releases.
+  - refuted by: `nvidia/nemotron-3-super-120b-a12b:free`, chosen on 2026-10-02, returned 404 on 2026-11-18. Nothing noticed until a manual test call, and the Operator's installed release still ships it.
+  - learned: a fixed default rots within weeks, so a single default is a single point of failure.
+  - criterion now: ISC-52 (an ordered fallback list across Model families).
+- conjectured: a 403 from a Provider means the key is bad.
+  - refuted by: OpenRouter on 2026-11-18. The same key that worked for other Models got 403 for `thinkingmachines/inkling-2-small:free`, which is "only available on agentic harnesses", and the worker told the Operator to re-enter his key.
+  - learned: Providers gate single Models per account or per app, and with a valid key. This is Specter's account-state failure in a new form.
+  - criterion now: ISC-53 (each failure class has its own message and next step).
+- conjectured: the client's 600 s timeout bounds how long a call can take.
+  - refuted by: an OpenRouter `extract` that ran 22 minutes on 2026-11-18, and a Gemini call that hung past 10 minutes on 2026-10-09. httpx's read timeout limits each read, so a Provider that trickles bytes holds a call open.
+  - learned: a hung call never fails, so retries and fallback never start.
+  - criterion now: ISC-52, with a total deadline per call.
 
 ## Verification
 
@@ -440,3 +467,7 @@ Why: measure quality on real articles before trusting or tuning prompts, the cal
 - ISC-44.1: `uv run pytest -k offsets` had no tests at `e2598dc` and passes 9 after the build. An off-by-one end and translated newlines each turned tests red. Live on Gemini on 2026-10-09, `extract --text-file` on two corpus bodies (16.9k and 33k characters) emitted 54 sentences, and every one equalled the Document text sliced at its offsets.
 - ISC-13: `uv run pytest -k output_budget` selected only the old fixed-cap test at `2c1b5ae`, which the build deletes, and passes 53 after it. Dropping the context cap and rounding the prompt estimate down each turned tests red. Live, both Providers' lookups returned their default Model's limits (Decisions, 2026-10-09).
 - ISC-12: `uv run pytest -k truncated` selected no tests at `2c1b5ae` and passes 7 after the build. Removing the `length` check turned all 7 red. Live, a call capped at 8 tokens failed as `output_truncated` on both OpenRouter and Gemini.
+- ISC-14: `uv run pytest -k rate_limit` already passed from S2 issue 03 (a per-minute 429, then a 200, with a `waiting_rate_limit` message), and passes 23 at `0626950`. The page that shows it to the Operator is S7.
+- ISC-14.1: `uv run pytest -k daily_quota` selected no tests before `c7efb9c` (exit 5) and passes 32 at `0626950`. The fixtures are built from a live Gemini per-day 429 body captured on 2026-11-18. Five planted faults were each caught, among them retrying a per-day 429 and dropping `retry_at`.
+- ISC-52: `uv run pytest -k fallback` selected one unrelated budget test, renamed in `b70f343` so the probe exited 5. It passes 13 at `7a567fa`, including a call that hangs past its deadline and falls back. Of nine planted faults, seven were caught and one was equivalent. Breaking the skip of failed Models made the run hang instead of fail, and the total deadline was added for that hang.
+- ISC-53: `uv run pytest -k failure_messages` selected no tests before `f94f18e` (exit 5) and passes 46 at `0626950`. It walks every reason. Six planted faults were caught, among them a reason left out of the table and a gated 403 reported as `auth`.
