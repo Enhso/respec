@@ -7,18 +7,19 @@ its own ``WorkerMessage`` enum. Messages are discriminated by ``kind``.
 
 import sys
 from datetime import UTC, datetime
-from typing import Annotated, Literal
+from typing import Annotated, Literal, NamedTuple
 
 import orjson
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, TypeAdapter
 
-from respec_worker.providers import Provider
+from respec_worker.providers import PROVIDERS, Provider
 
 Reason = Literal[
     "auth",
     "quota",
     "daily_quota",
     "rate_limit",
+    "overloaded",
     "model_unavailable",
     "network",
     "fetch",
@@ -28,7 +29,7 @@ Reason = Literal[
 ]
 """Why a run failed, in terms the operator can act on."""
 
-Stage = Literal["fetching", "calling_model", "waiting_rate_limit"]
+Stage = Literal["fetching", "calling_model", "waiting_rate_limit", "waiting_overloaded"]
 """What a running extraction is doing."""
 
 
@@ -47,6 +48,85 @@ def describe_reset(retry_at: datetime | None, now: datetime) -> str:
         hours = round(seconds / 3600)
         away = f"about {hours} hour{'s' if hours > 1 else ''}"
     return f"after {retry_at.astimezone(UTC):%Y-%m-%d %H:%M} UTC (in {away})"
+
+
+class FailureText(NamedTuple):
+    """The two halves of a failure message: what happened, and the next step.
+
+    Both may use ``{provider}`` (the Provider's name) and ``{model}``; the next
+    step may also use ``{when}`` (see ``describe_reset``).
+    """
+
+    what: str
+    next_step: str
+
+
+FAILURE_TEXT: dict[Reason, FailureText] = {
+    "auth": FailureText(
+        "{provider} rejected the key",
+        "check the key in Respec's settings and save it again",
+    ),
+    "quota": FailureText(
+        "{provider} says the account is out of credit",
+        "check the account's billing or quota, then try again",
+    ),
+    "daily_quota": FailureText(
+        "{provider} has used up its free daily quota for {model}",
+        "try again {when}",
+    ),
+    "rate_limit": FailureText(
+        "The {provider} rate limit was reached", "try again in a few minutes"
+    ),
+    "overloaded": FailureText(
+        "{provider} is overloaded right now",
+        "try again in a few minutes, or later if it stays busy",
+    ),
+    "model_unavailable": FailureText(
+        "{provider} is not offering the model {model} to this account",
+        "try again later, or choose another model once that is possible",
+    ),
+    "network": FailureText(
+        "Could not reach {provider}", "check the internet connection and try again"
+    ),
+    "fetch": FailureText(
+        "The article could not be read", "check the address or the file, then try again"
+    ),
+    "bad_output": FailureText(
+        "The Model's reply was not in the form Respec needs",
+        "try again, or later with another Model",
+    ),
+    "output_truncated": FailureText(
+        "The Model's reply was cut off at its output limit",
+        "try a shorter article, or later with another Model",
+    ),
+    "other": FailureText(
+        "{provider} gave an answer Respec could not use", "try again later"
+    ),
+}
+"""One plain message for each failure ``Reason``, with a next step (ISC-53). A
+test walks every ``Reason``, so a new one without an entry fails. The messages
+of a failed fetch, a bad reply and a missing key keep their own, more specific
+sentences at the place that raises them."""
+
+
+def failure_message(
+    reason: Reason,
+    provider: Provider,
+    model: str,
+    *,
+    retry_at: datetime | None = None,
+    now: datetime | None = None,
+) -> str:
+    """The plain sentence for ``reason``, with its next step, about ``model``
+    at ``provider``. ``retry_at`` is when a ``daily_quota`` ends, if known."""
+    text = FAILURE_TEXT[reason]
+    fields = {
+        "provider": PROVIDERS[provider].label,
+        "model": model,
+        "when": describe_reset(retry_at, now or datetime.now(UTC)),
+    }
+    sentence = f"{text.what}; {text.next_step}."
+    return sentence.format_map(fields)
 
 
 class _Message(BaseModel):

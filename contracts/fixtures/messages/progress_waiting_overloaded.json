@@ -1,0 +1,1 @@
+{"kind": "progress", "provider": "gemini", "stage": "waiting_overloaded", "detail": "Example Provider is overloaded; retrying in 10 s (attempt 3 of 6)", "pass_number": 1, "pass_count": 2}

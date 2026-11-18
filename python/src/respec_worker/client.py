@@ -5,18 +5,21 @@
 ``chat_with_retries`` adds the per-minute rate-limit retries a long call needs.
 """
 
+import logging
 import math
 import re
 import time
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, Final
 
 import httpx
 import orjson
 
-from respec_worker.messages import Reason, describe_reset
+from respec_worker.messages import Reason, failure_message
 from respec_worker.providers import PROVIDERS, Provider
+
+_LOGGER = logging.getLogger(__name__)
 
 TIMEOUT_SECONDS = 60.0
 """The default timeout: enough for a one-word reply."""
@@ -32,6 +35,9 @@ RETRY_DELAYS = (5.0, 10.0, 20.0, 40.0, 60.0)
 
 MAX_RETRY_AFTER = 120.0
 """The longest wait a Retry-After header can ask for; a longer one is capped."""
+
+RETRIED: Final[frozenset[Reason]] = frozenset({"rate_limit", "overloaded"})
+"""The failures ``chat_with_retries`` waits out and tries again."""
 
 
 def _utc_now() -> datetime:
@@ -96,56 +102,54 @@ def chat(
     except httpx.TransportError as err:
         # Timeouts and connection errors. The error text is not shown.
         raise ChatFailure(
-            "network",
-            f"Could not reach {spec.label}; check the internet connection and "
-            "try again.",
+            "network", failure_message("network", provider, model)
         ) from err
     if response.status_code != 200:
         raise _failure_for_status(provider, model, response, now())
-    return _reply_text(provider, response)
+    return _reply_text(provider, model, response)
 
 
 def _failure_for_status(
     provider: Provider, model: str, response: httpx.Response, now: datetime
 ) -> ChatFailure:
-    label = PROVIDERS[provider].label
     status = response.status_code
-    bad_key = status == 400 and "api key" in response.text.lower()
-    if status in (401, 403) or bad_key:
-        return ChatFailure(
-            "auth",
-            f"{label} rejected the key; check it in Respec's settings and "
-            "save it again.",
-        )
-    if status == 402:
-        return ChatFailure(
-            "quota",
-            f"{label} says the account is out of credit; check the account's "
-            "billing or quota, then try again.",
-        )
-    if status == 429:
+    retry_at = None
+    reason: Reason = "other"
+    if status in (401, 403) or (status == 400 and "api key" in response.text.lower()):
+        reason = "model_unavailable" if _is_model_gate(provider, response) else "auth"
+    elif status == 402:
+        reason = "quota"
+    elif status == 429:
         daily, retry_at = _daily_quota(provider, response, now)
-        if daily:
-            return ChatFailure(
-                "daily_quota",
-                f"{label} has used up its free daily quota for {model}; try "
-                f"again {describe_reset(retry_at, now)}.",
-                retry_at=retry_at,
-            )
-        return ChatFailure(
-            "rate_limit",
-            f"The {label} rate limit or a quota was reached; try again later.",
-            retry_after=_retry_after(response),
-        )
-    if status == 404:
-        return ChatFailure(
-            "model_unavailable",
-            f"{label} does not offer the model {model}; try again later, or "
-            "choose another model once that is possible.",
-        )
+        reason = "daily_quota" if daily else "rate_limit"
+    elif status == 503:
+        reason = "overloaded"
+    elif status == 404:
+        reason = "model_unavailable"
+    else:
+        _LOGGER.error("%s answered HTTP %d.", PROVIDERS[provider].label, status)
     return ChatFailure(
-        "other",
-        f"{label} answered with an unexpected status (HTTP {status}); try again later.",
+        reason,
+        failure_message(reason, provider, model, retry_at=retry_at, now=now),
+        retry_after=_retry_after(response) if reason in RETRIED else None,
+        retry_at=retry_at,
+    )
+
+
+def _is_model_gate(provider: Provider, response: httpx.Response) -> bool:
+    """Whether a 403 is OpenRouter refusing one Model, not the key.
+
+    OpenRouter gates some free Models to certain apps and says so in
+    ``error.message``. Only a readable message that does not mention a key
+    counts, so a bad key still reads as ``auth``.
+    """
+    message = _error_object(response).get("message")
+    return (
+        provider == "openrouter"
+        and response.status_code == 403
+        and isinstance(message, str)
+        and bool(message)
+        and "key" not in message.lower()
     )
 
 
@@ -240,7 +244,7 @@ def _retry_after(response: httpx.Response) -> float | None:
     return seconds if math.isfinite(seconds) and seconds >= 0 else None
 
 
-def _reply_text(provider: Provider, response: httpx.Response) -> str:
+def _reply_text(provider: Provider, model: str, response: httpx.Response) -> str:
     finish_reason = reply = None
     try:
         choice = orjson.loads(response.content)["choices"][0]
@@ -251,17 +255,11 @@ def _reply_text(provider: Provider, response: httpx.Response) -> str:
     # Checked before the text: a reply cut off in its thinking can be empty.
     if finish_reason == "length":
         raise ChatFailure(
-            "output_truncated",
-            "The Model's reply was cut off at its output limit; try a shorter "
-            "article, or later with another Model.",
+            "output_truncated", failure_message("output_truncated", provider, model)
         )
     if isinstance(reply, str) and reply.strip():
         return reply.strip()
-    raise ChatFailure(
-        "other",
-        f"{PROVIDERS[provider].label} answered without any reply text; try "
-        "again later.",
-    )
+    raise ChatFailure("other", failure_message("other", provider, model))
 
 
 def chat_with_retries(
@@ -271,17 +269,19 @@ def chat_with_retries(
     messages: list[dict[str, str]],
     max_tokens: int,
     *,
-    on_wait: Callable[[int, int, int], None],
+    on_wait: Callable[[int, int, int, Reason], None],
     timeout: float = LONG_TIMEOUT_SECONDS,
     transport: httpx.BaseTransport | None = None,
     sleep: Callable[[float], None] = time.sleep,
 ) -> str:
-    """Like ``chat``, but retry a 429 up to ``MAX_ATTEMPTS`` times in all.
+    """Like ``chat``, but retry a per-minute 429 or a 503 up to ``MAX_ATTEMPTS``
+    times in all.
 
-    The wait honours the 429's ``Retry-After`` (kept between 1 s and
+    The wait honours the ``Retry-After`` (kept between 1 s and
     ``MAX_RETRY_AFTER``) and otherwise follows ``RETRY_DELAYS``. Before each
-    wait, ``on_wait(seconds, next_attempt, max_attempts)`` is called. After the
-    last attempt the ``rate_limit`` failure is raised; any other failure is
+    wait, ``on_wait(seconds, next_attempt, max_attempts, reason)`` is called,
+    with ``rate_limit`` or ``overloaded`` as the reason. After the last attempt
+    that failure is raised; any other failure, a ``daily_quota`` included, is
     raised at once. ``sleep`` is injectable so tests do not wait.
     """
     attempt = 1
@@ -297,11 +297,12 @@ def chat_with_retries(
                 transport=transport,
             )
         except ChatFailure as failure:
-            if failure.reason != "rate_limit" or attempt == MAX_ATTEMPTS:
+            if failure.reason not in RETRIED or attempt == MAX_ATTEMPTS:
                 raise
+            reason = failure.reason
             delay = RETRY_DELAYS[attempt - 1]
             if failure.retry_after is not None:
                 delay = min(max(failure.retry_after, 1.0), MAX_RETRY_AFTER)
-        on_wait(math.ceil(delay), attempt + 1, MAX_ATTEMPTS)
+        on_wait(math.ceil(delay), attempt + 1, MAX_ATTEMPTS, reason)
         sleep(delay)
         attempt += 1

@@ -81,7 +81,7 @@ def test_chat_sends_the_request_and_returns_the_trimmed_reply() -> None:
         (404, "no such model", "model_unavailable"),
         (400, "the request body is malformed", "other"),
         (500, "internal error", "other"),
-        (503, "overloaded", "other"),
+        (503, "overloaded", "overloaded"),
     ],
 )
 def test_status_maps_to_its_reason_without_leaking_the_body(
@@ -100,11 +100,11 @@ def test_status_maps_to_its_reason_without_leaking_the_body(
     assert failure.message.endswith(".")
 
 
-def test_rate_limit_message_says_to_try_again_later() -> None:
-    """The 429 message names the rate limit or a quota and gives the next step."""
+def test_rate_limit_message_says_to_try_again_in_a_few_minutes() -> None:
+    """The 429 message names the rate limit and gives the next step."""
     message = _fail(_answering(httpx.Response(429))).message
-    assert "rate limit or a quota was reached" in message
-    assert "try again later" in message
+    assert "rate limit was reached" in message
+    assert "try again in a few minutes" in message
 
 
 @pytest.mark.parametrize(
@@ -280,10 +280,10 @@ def _sequence(*responses: httpx.Response) -> tuple[httpx.MockTransport, list[int
 
 def _retrying(
     transport: httpx.MockTransport,
-) -> tuple[list[float], list[tuple[int, int, int]]]:
+) -> tuple[list[float], list[tuple[int, int, int, Reason]]]:
     """Run `chat_with_retries` and return the sleeps and the `on_wait` calls."""
     sleeps: list[float] = []
-    waits: list[tuple[int, int, int]] = []
+    waits: list[tuple[int, int, int, Reason]] = []
     chat_with_retries(
         "openrouter",
         KEY,
@@ -309,7 +309,7 @@ def test_two_429s_then_a_reply_wait_five_then_ten_seconds() -> None:
 
     assert len(count) == 3
     assert sleeps == [5.0, 10.0]
-    assert waits == [(5, 2, 6), (10, 3, 6)]
+    assert waits == [(5, 2, 6, "rate_limit"), (10, 3, 6, "rate_limit")]
 
 
 def test_the_reply_is_returned_after_the_retries() -> None:
@@ -334,7 +334,7 @@ def test_a_429_on_every_attempt_gives_up_after_six_with_rate_limit() -> None:
     """Six attempts, the five documented waits, then the `rate_limit` failure."""
     transport, count = _sequence(httpx.Response(429))
     sleeps: list[float] = []
-    waits: list[tuple[int, int, int]] = []
+    waits: list[tuple[int, int, int, Reason]] = []
 
     with pytest.raises(ChatFailure) as excinfo:
         chat_with_retries(
@@ -352,7 +352,13 @@ def test_a_429_on_every_attempt_gives_up_after_six_with_rate_limit() -> None:
     assert excinfo.value.reason == "rate_limit"
     assert len(count) == 6
     assert sleeps == [5.0, 10.0, 20.0, 40.0, 60.0]
-    assert waits == [(5, 2, 6), (10, 3, 6), (20, 4, 6), (40, 5, 6), (60, 6, 6)]
+    assert waits == [
+        (5, 2, 6, "rate_limit"),
+        (10, 3, 6, "rate_limit"),
+        (20, 4, 6, "rate_limit"),
+        (40, 5, 6, "rate_limit"),
+        (60, 6, 6, "rate_limit"),
+    ]
 
 
 @pytest.mark.parametrize(
@@ -370,11 +376,11 @@ def test_retry_after_is_honoured_within_one_and_one_hundred_twenty_seconds(
     sleeps, waits = _retrying(transport)
 
     assert sleeps == [slept]
-    assert waits == [(math.ceil(slept), 2, 6)]
+    assert waits == [(math.ceil(slept), 2, 6, "rate_limit")]
 
 
 @pytest.mark.parametrize("status", [400, 401, 402, 404, 500])
-def test_only_a_429_is_retried(status: int) -> None:
+def test_only_a_429_or_a_503_is_retried(status: int) -> None:
     """Any other failure is raised at once, with no wait."""
     transport, count = _sequence(httpx.Response(status), OK)
     sleeps: list[float] = []

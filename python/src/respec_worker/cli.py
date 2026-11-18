@@ -36,6 +36,7 @@ from respec_worker.messages import (
     Progress,
     ProposedEntity,
     ProposedRelationship,
+    Reason,
     Relationships,
     Stage,
     Started,
@@ -63,6 +64,20 @@ def _key_from_environment(provider: Provider) -> str | None:
         )
         return None
     return key
+
+
+def _waiting(
+    provider: Provider, reason: Reason, seconds: int, attempt: int, attempts: int
+) -> tuple[Stage, str]:
+    """The stage and plain sentence for a wait before retrying a call that
+    failed with ``reason``: a rate limit, or an overloaded Provider."""
+    retry = f"retrying in {seconds} s (attempt {attempt} of {attempts})"
+    if reason == "overloaded":
+        return (
+            "waiting_overloaded",
+            f"{PROVIDERS[provider].label} is overloaded; {retry}",
+        )
+    return "waiting_rate_limit", f"Rate limited; {retry}"
 
 
 def _chat_failed(provider: Provider, failure: ChatFailure) -> Failed:
@@ -131,11 +146,8 @@ def run_test_extraction(
         emit(Failed(provider=provider, reason="fetch", message=failure.message))
         return 1
 
-    def waiting(seconds: int, attempt: int, attempts: int) -> None:
-        progress(
-            "waiting_rate_limit",
-            f"Rate limited; retrying in {seconds} s (attempt {attempt} of {attempts})",
-        )
+    def waiting(seconds: int, attempt: int, attempts: int, reason: Reason) -> None:
+        progress(*_waiting(provider, reason, seconds, attempt, attempts))
 
     model_spec = lookup_model_spec(
         provider, key, spec.default_model, transport=transport
@@ -286,13 +298,9 @@ def run_extract(
     model_spec = lookup_model_spec(provider, key, model, transport=transport)
 
     def ask(pass_number: int, detail: str, messages: list[dict[str, str]]) -> str:
-        def waiting(seconds: int, attempt: int, attempts: int) -> None:
-            progress(
-                "waiting_rate_limit",
-                f"Rate limited; retrying in {seconds} s "
-                f"(attempt {attempt} of {attempts})",
-                pass_number,
-            )
+        def waiting(seconds: int, attempt: int, attempts: int, reason: Reason) -> None:
+            stage, detail = _waiting(provider, reason, seconds, attempt, attempts)
+            progress(stage, detail, pass_number)
 
         progress(
             "calling_model",

@@ -135,6 +135,8 @@ pub enum Stage {
     CallingModel,
     /// Waiting out a per-minute rate limit before trying again.
     WaitingRateLimit,
+    /// Waiting out an overloaded Provider before trying again.
+    WaitingOverloaded,
 }
 
 /// The Document an extraction read.
@@ -215,6 +217,8 @@ pub enum FailureReason {
     DailyQuota,
     /// A rate limit was reached; trying later may work.
     RateLimit,
+    /// The Provider is overloaded (HTTP 503); trying later may work.
+    Overloaded,
     /// The Provider does not offer the Model.
     ModelUnavailable,
     /// The Provider could not be reached.
@@ -467,6 +471,7 @@ mod tests {
                 "quota",
                 "daily_quota",
                 "rate_limit",
+                "overloaded",
                 "model_unavailable",
                 "network",
                 "fetch",
@@ -477,7 +482,12 @@ mod tests {
         );
         assert_eq!(
             stages,
-            names(&["fetching", "calling_model", "waiting_rate_limit"])
+            names(&[
+                "fetching",
+                "calling_model",
+                "waiting_rate_limit",
+                "waiting_overloaded"
+            ])
         );
     }
 }

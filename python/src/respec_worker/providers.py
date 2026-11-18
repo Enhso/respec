@@ -45,10 +45,10 @@ PROVIDERS: dict[Provider, ProviderSpec] = {
         models_url="https://openrouter.ai/api/v1/models",
         key_env="OPENROUTER_API_KEY",
         # Free OpenRouter Models come and go and are often rate-limited
-        # upstream. Chosen by live calls on 2026-10-02: this one answered
-        # three times in a row, while google/gemma-4-31b-it:free always
-        # returned 429 and qwen/qwen3.8-27b:free did on two of three.
-        default_model="nvidia/nemotron-3-super-120b-a12b:free",
+        # upstream. Changed on 2026-11-18: the earlier default,
+        # nvidia/nemotron-3-super-120b-a12b:free, now answers 404, and this one
+        # passed a real-sized extraction on a 28k-character article that day.
+        default_model="nvidia/nemotron-3.5-super-vl:free",
     ),
     "gemini": ProviderSpec(
         label="Google Gemini",
