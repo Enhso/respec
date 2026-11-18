@@ -69,7 +69,7 @@ def test_output_budget_counts_characters_not_bytes() -> None:
     assert budget == 10_000 - 3_000
 
 
-def test_output_budget_without_a_spec_is_the_fixed_fallback() -> None:
+def test_output_budget_without_a_spec_is_the_fixed_budget() -> None:
     """When the lookup failed there is no spec, and the run uses 16,384."""
     assert output_budget(None, _messages(5_000)) == FALLBACK_MAX_TOKENS == 16384
 
