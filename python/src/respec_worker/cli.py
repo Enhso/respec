@@ -10,13 +10,14 @@ from typing import Final, get_args
 
 import httpx
 
-from respec_worker.budget import lookup_model_spec, output_budget
+from respec_worker.budget import ModelSpec, lookup_model_spec, output_budget
 from respec_worker.client import ChatFailure, chat, chat_with_retries
 from respec_worker.extraction import (
     BadOutput,
     DocumentText,
     Grounded,
     Pass1EntityProposal,
+    Pass1Response,
     Pass2RelationshipProposal,
     ground,
     known_relationships,
@@ -27,6 +28,7 @@ from respec_worker.extraction import (
     split_paragraphs,
     stamp_ids,
 )
+from respec_worker.fallback import AllModelsFailed, Candidate, ModelChain, chain_for
 from respec_worker.fetch import FetchError, fetch_article
 from respec_worker.messages import (
     DocumentSummary,
@@ -41,6 +43,7 @@ from respec_worker.messages import (
     Stage,
     Started,
     emit,
+    failure_what,
 )
 from respec_worker.providers import PROVIDERS, Provider
 
@@ -246,6 +249,7 @@ def run_extract(
     *,
     model: str | None = None,
     pass2_chunk_chars: int = 0,
+    fallback: bool = False,
     url: str | None,
     text_file: Path | None,
     transport: httpx.BaseTransport | None,
@@ -257,10 +261,13 @@ def run_extract(
     Model is ``model``, by default the Provider's default Model. With
     ``pass2_chunk_chars``, Pass 2 is asked once per part of the text of at most
     that many characters, and the parts' links are merged; Pass 1 always reads
-    the whole text. Emits
-    ``progress`` messages while it works, ``entities`` once Pass 1 is read, and
-    then ``relationships`` (returning 0) or ``failed`` (returning 1). The key
-    comes from the Provider's environment variable and is sent only to the
+    the whole text. With ``fallback``, a pass whose Model still fails after its
+    retries moves on to the next Model of ``FALLBACK_MODELS`` whose Provider has
+    a key (see ``respec_worker.fallback``), and ``entities`` and
+    ``relationships`` name the Model that made them. Emits ``progress``
+    messages while it works, ``entities`` once Pass 1 is read, and then
+    ``relationships`` (returning 0) or ``failed`` (returning 1). Each key comes
+    from its Provider's environment variable and is sent only to that
     Provider's host. Keeps no state and writes no files.
     """
     spec = PROVIDERS[provider]
@@ -269,10 +276,15 @@ def run_extract(
         return 1
     model = model or spec.default_model
 
-    def progress(stage: Stage, detail: str, pass_number: int | None = None) -> None:
+    def progress(
+        stage: Stage,
+        detail: str,
+        pass_number: int | None = None,
+        at: Provider = provider,
+    ) -> None:
         emit(
             Progress(
-                provider=provider,
+                provider=at,
                 stage=stage,
                 detail=detail,
                 pass_number=pass_number,
@@ -295,49 +307,72 @@ def run_extract(
             return 1
         body, location, title = article.body, article.final_url, article.title or None
 
-    model_spec = lookup_model_spec(provider, key, model, transport=transport)
+    chain = ModelChain(chain_for(Candidate(provider, model, key), fallback))
+    specs: dict[Candidate, ModelSpec | None] = {}
 
-    def ask(pass_number: int, detail: str, messages: list[dict[str, str]]) -> str:
+    def ask(
+        candidate: Candidate,
+        pass_number: int,
+        detail: str,
+        messages: list[dict[str, str]],
+    ) -> str:
+        if candidate not in specs:
+            specs[candidate] = lookup_model_spec(
+                candidate.provider, candidate.key, candidate.model, transport=transport
+            )
+
         def waiting(seconds: int, attempt: int, attempts: int, reason: Reason) -> None:
-            stage, detail = _waiting(provider, reason, seconds, attempt, attempts)
-            progress(stage, detail, pass_number)
+            stage, detail = _waiting(
+                candidate.provider, reason, seconds, attempt, attempts
+            )
+            progress(stage, detail, pass_number, candidate.provider)
 
         progress(
             "calling_model",
             f"Pass {pass_number} of {PASS_COUNT}: {detail}",
             pass_number,
+            candidate.provider,
         )
         return chat_with_retries(
-            provider,
-            key,
-            model,
+            candidate.provider,
+            candidate.key,
+            candidate.model,
             messages,
-            output_budget(model_spec, messages),
+            output_budget(specs[candidate], messages),
             on_wait=waiting,
             transport=transport,
             sleep=sleep,
         )
 
+    def falling_back(
+        pass_number: int,
+    ) -> Callable[[Candidate, Reason, Candidate], None]:
+        def notify(failed: Candidate, reason: Reason, following: Candidate) -> None:
+            what = failure_what(reason, failed.provider, failed.model)
+            progress(
+                "falling_back",
+                f"{failed.model} failed ({what}); trying {following.model} on "
+                f"{PROVIDERS[following.provider].label}",
+                pass_number,
+                following.provider,
+            )
+
+        return notify
+
     document = DocumentText(body)
-    try:
+
+    def read_entities(candidate: Candidate) -> Pass1Response:
         reply = ask(
+            candidate,
             1,
-            f"calling {model} on {len(body):,} characters",
+            f"calling {candidate.model} on {len(body):,} characters",
             pass1_messages(body),
         )
-        pass1 = parse_pass1(reply)
-        grounded_entities = ground(pass1.entities, document, "entity")
-        entities = stamp_ids(grounded_entities.kept)
-        emit(
-            Entities(
-                provider=provider,
-                model=model,
-                document=DocumentSummary(url=location, title=title, chars=len(body)),
-                entities=_proposed_entities(entities),
-                dropped=pass1.dropped + grounded_entities.dropped,
-                sentences_dropped=grounded_entities.sentences_dropped,
-            )
-        )
+        return parse_pass1(reply)
+
+    def read_relationships(
+        candidate: Candidate, entities: Mapping[str, Grounded[Pass1EntityProposal]]
+    ) -> tuple[list[Grounded[Pass2RelationshipProposal]], int, int]:
         parts = (
             split_paragraphs(body, pass2_chunk_chars) if pass2_chunk_chars else [body]
         )
@@ -345,10 +380,12 @@ def run_extract(
         seen: set[tuple[str, str, str]] = set()
         dropped = sentences_dropped = 0
         for number, part in enumerate(parts, start=1):
-            detail = f"calling {model} for relationships"
+            detail = f"calling {candidate.model} for relationships"
             if len(parts) > 1:
                 detail += f", part {number} of {len(parts)}"
-            pass2 = parse_pass2(ask(2, detail, pass2_messages(part, entities)))
+            pass2 = parse_pass2(
+                ask(candidate, 2, detail, pass2_messages(part, entities))
+            )
             grounded_links = ground(pass2.relationships, document, "relationship")
             kept, unresolved = known_relationships(grounded_links.kept, entities)
             dropped += pass2.dropped + grounded_links.dropped + unresolved
@@ -358,16 +395,40 @@ def run_extract(
                 if (proposal.type, proposal.from_id, proposal.to_id) not in seen:
                     seen.add((proposal.type, proposal.from_id, proposal.to_id))
                     links.append(link)
-    except ChatFailure as failure:
-        emit(_chat_failed(provider, failure))
-        return 1
-    except BadOutput as failure:
-        emit(Failed(provider=provider, reason="bad_output", message=failure.message))
+        return links, dropped, sentences_dropped
+
+    try:
+        pass1, first = chain.run(read_entities, falling_back(1))
+        grounded_entities = ground(pass1.entities, document, "entity")
+        entities = stamp_ids(grounded_entities.kept)
+        emit(
+            Entities(
+                provider=first.provider,
+                model=first.model,
+                document=DocumentSummary(url=location, title=title, chars=len(body)),
+                entities=_proposed_entities(entities),
+                dropped=pass1.dropped + grounded_entities.dropped,
+                sentences_dropped=grounded_entities.sentences_dropped,
+            )
+        )
+        (links, dropped, sentences_dropped), second = chain.run(
+            lambda candidate: read_relationships(candidate, entities),
+            falling_back(2),
+        )
+    except AllModelsFailed as failure:
+        emit(
+            Failed(
+                provider=failure.provider,
+                reason=failure.reason,
+                message=failure.message,
+                retry_at=failure.retry_at,
+            )
+        )
         return 1
     emit(
         Relationships(
-            provider=provider,
-            model=model,
+            provider=second.provider,
+            model=second.model,
             relationships=[
                 ProposedRelationship(
                     type=link.proposal.type,
@@ -434,6 +495,13 @@ def main(
         "--model", help="the Model to call (default: the Provider's default Model)"
     )
     extract.add_argument(
+        "--fallback",
+        action="store_true",
+        help="when a pass's Model still fails after its retries, move on to the "
+        "next Model of the fallback list whose Provider has a key (default: stay "
+        "on the Model chosen)",
+    )
+    extract.add_argument(
         "--pass2-chunk-chars",
         type=int,
         default=0,
@@ -452,6 +520,7 @@ def main(
             args.provider,
             model=args.model,
             pass2_chunk_chars=args.pass2_chunk_chars,
+            fallback=args.fallback,
             url=args.url,
             text_file=args.text_file,
             transport=transport,

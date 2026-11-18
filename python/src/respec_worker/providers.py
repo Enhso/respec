@@ -62,3 +62,15 @@ PROVIDERS: dict[Provider, ProviderSpec] = {
         default_model="gemini-flash-lite-latest",
     ),
 }
+
+# The Models ``extract --fallback`` walks after the chosen one, in this order,
+# until Respec's settings let the Operator choose (S11). Successive entries
+# alternate Model families, because the Gemini Flash Models failed together on
+# 2026-10-09 (HTTP 503 on every call for over an hour). A Provider without a
+# key is skipped. Chosen by live calls on 2026-11-18.
+FALLBACK_MODELS: tuple[tuple[Provider, str], ...] = (
+    ("gemini", "gemini-flash-lite-latest"),
+    ("openrouter", "nvidia/nemotron-3.5-super-vl:free"),
+    ("gemini", "gemma-4-31b-it"),
+    ("openrouter", "nvidia/nemotron-3-ultra-550b-a55b:free"),
+)

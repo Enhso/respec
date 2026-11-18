@@ -137,6 +137,9 @@ pub enum Stage {
     WaitingRateLimit,
     /// Waiting out an overloaded Provider before trying again.
     WaitingOverloaded,
+    /// A Model failed after its retries, and the run is moving to the next
+    /// one. The progress message's `provider` is the one it moves to.
+    FallingBack,
 }
 
 /// The Document an extraction read.
@@ -486,7 +489,8 @@ mod tests {
                 "fetching",
                 "calling_model",
                 "waiting_rate_limit",
-                "waiting_overloaded"
+                "waiting_overloaded",
+                "falling_back"
             ])
         );
     }

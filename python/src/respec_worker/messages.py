@@ -6,6 +6,7 @@ its own ``WorkerMessage`` enum. Messages are discriminated by ``kind``.
 """
 
 import sys
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import Annotated, Literal, NamedTuple
 
@@ -29,7 +30,13 @@ Reason = Literal[
 ]
 """Why a run failed, in terms the operator can act on."""
 
-Stage = Literal["fetching", "calling_model", "waiting_rate_limit", "waiting_overloaded"]
+Stage = Literal[
+    "fetching",
+    "calling_model",
+    "waiting_rate_limit",
+    "waiting_overloaded",
+    "falling_back",
+]
 """What a running extraction is doing."""
 
 
@@ -109,6 +116,22 @@ of a failed fetch, a bad reply and a missing key keep their own, more specific
 sentences at the place that raises them."""
 
 
+def _fields(
+    provider: Provider, model: str, retry_at: datetime | None, now: datetime | None
+) -> dict[str, str]:
+    return {
+        "provider": PROVIDERS[provider].label,
+        "model": model,
+        "when": describe_reset(retry_at, now or datetime.now(UTC)),
+    }
+
+
+def failure_what(reason: Reason, provider: Provider, model: str) -> str:
+    """What happened, in a few words, when ``model`` at ``provider`` failed with
+    ``reason``: the first half of ``failure_message``."""
+    return FAILURE_TEXT[reason].what.format_map(_fields(provider, model, None, None))
+
+
 def failure_message(
     reason: Reason,
     provider: Provider,
@@ -120,13 +143,28 @@ def failure_message(
     """The plain sentence for ``reason``, with its next step, about ``model``
     at ``provider``. ``retry_at`` is when a ``daily_quota`` ends, if known."""
     text = FAILURE_TEXT[reason]
-    fields = {
-        "provider": PROVIDERS[provider].label,
-        "model": model,
-        "when": describe_reset(retry_at, now or datetime.now(UTC)),
-    }
     sentence = f"{text.what}; {text.next_step}."
-    return sentence.format_map(fields)
+    return sentence.format_map(_fields(provider, model, retry_at, now))
+
+
+def failure_summary(
+    tried: Sequence[tuple[Provider, str, Reason]],
+    *,
+    retry_at: datetime | None = None,
+    now: datetime | None = None,
+) -> str:
+    """The message of a run in which every Model in ``tried`` (provider, model
+    and reason, in the order tried) failed: what happened to each, then the
+    next step for the last. ``retry_at`` is when a daily quota ends, if known."""
+    last_provider, last_model, last_reason = tried[-1]
+    each = " ".join(
+        f"{model}: {failure_what(reason, provider, model)}."
+        for provider, model, reason in tried
+    )
+    step = FAILURE_TEXT[last_reason].next_step.format_map(
+        _fields(last_provider, last_model, retry_at, now)
+    )
+    return f"No Model could finish this article. {each} {step[0].upper()}{step[1:]}."
 
 
 class _Message(BaseModel):
