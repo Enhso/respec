@@ -273,6 +273,7 @@ async fn test_call(
             provider,
             reason,
             message,
+            ..
         } => {
             tracing::info!(?provider, ?reason, "test call failed");
             json!({ "ok": false, "provider": provider, "reason": reason, "message": message })

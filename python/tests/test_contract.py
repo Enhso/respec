@@ -2,8 +2,11 @@
 validates against the worker's own models (ISC-17, worker side), and each kind,
 failure reason and progress stage has a fixture."""
 
+from datetime import timedelta
 from pathlib import Path
 from typing import get_args
+
+import orjson
 
 from respec_worker.messages import (
     MESSAGE_ADAPTER,
@@ -68,6 +71,23 @@ def test_contract_fixtures_exercise_the_two_pass_shapes() -> None:
     assert any(
         r.date_from and r.date_precision for m in relationships for r in m.relationships
     )
+
+
+def test_contract_failed_fixtures_say_when_a_quota_comes_back_or_say_null() -> None:
+    """Every `failed` fixture carries `retry_at` (the worker always sends it),
+    and a `daily_quota` one fills it with a UTC time."""
+    raw = {
+        path.name: orjson.loads(path.read_bytes())
+        for path in sorted(MESSAGES_DIR.glob("failed_*.json"))
+    }
+
+    assert raw and all("retry_at" in body for body in raw.values())
+    quota = MESSAGE_ADAPTER.validate_python(raw["failed_daily_quota.json"])
+    assert isinstance(quota, Failed) and quota.reason == "daily_quota"
+    assert quota.retry_at is not None and quota.retry_at.utcoffset() == timedelta(0)
+    assert raw["failed_daily_quota.json"]["retry_at"].endswith("Z")
+    others = [b for name, b in raw.items() if name != "failed_daily_quota.json"]
+    assert all(body["retry_at"] is None for body in others)
 
 
 def test_the_participant_fixture_links_an_entity_to_an_event() -> None:

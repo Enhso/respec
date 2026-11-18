@@ -106,6 +106,9 @@ pub enum WorkerMessage {
         reason: FailureReason,
         /// One plain sentence with a next step, safe to show the operator.
         message: String,
+        /// When the quota comes back, as an ISO 8601 UTC time, for a
+        /// `daily_quota` failure whose Provider said. Null for every other.
+        retry_at: Option<String>,
     },
 }
 
@@ -207,6 +210,9 @@ pub enum FailureReason {
     Auth,
     /// The account is out of credit or quota.
     Quota,
+    /// The free per-day quota is used up. Retrying before `retry_at` is
+    /// pointless.
+    DailyQuota,
     /// A rate limit was reached; trying later may work.
     RateLimit,
     /// The Provider does not offer the Model.
@@ -459,6 +465,7 @@ mod tests {
             names(&[
                 "auth",
                 "quota",
+                "daily_quota",
                 "rate_limit",
                 "model_unavailable",
                 "network",

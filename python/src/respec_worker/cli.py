@@ -65,6 +65,16 @@ def _key_from_environment(provider: Provider) -> str | None:
     return key
 
 
+def _chat_failed(provider: Provider, failure: ChatFailure) -> Failed:
+    """The ``failed`` message for a chat call that failed."""
+    return Failed(
+        provider=provider,
+        reason=failure.reason,
+        message=failure.message,
+        retry_at=failure.retry_at,
+    )
+
+
 def run_test_call(provider: Provider, *, transport: httpx.BaseTransport | None) -> int:
     """Send one small chat request to ``provider`` and report it as messages.
 
@@ -86,7 +96,7 @@ def run_test_call(provider: Provider, *, transport: httpx.BaseTransport | None) 
             transport=transport,
         )
     except ChatFailure as failure:
-        emit(Failed(provider=provider, reason=failure.reason, message=failure.message))
+        emit(_chat_failed(provider, failure))
         return 1
     emit(Done(provider=provider, model=spec.default_model, reply=reply))
     return 0
@@ -148,7 +158,7 @@ def run_test_extraction(
         )
         response = parse_pass1(reply)
     except ChatFailure as failure:
-        emit(Failed(provider=provider, reason=failure.reason, message=failure.message))
+        emit(_chat_failed(provider, failure))
         return 1
     except BadOutput as failure:
         emit(Failed(provider=provider, reason="bad_output", message=failure.message))
@@ -341,7 +351,7 @@ def run_extract(
                     seen.add((proposal.type, proposal.from_id, proposal.to_id))
                     links.append(link)
     except ChatFailure as failure:
-        emit(Failed(provider=provider, reason=failure.reason, message=failure.message))
+        emit(_chat_failed(provider, failure))
         return 1
     except BadOutput as failure:
         emit(Failed(provider=provider, reason="bad_output", message=failure.message))

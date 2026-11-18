@@ -6,16 +6,18 @@ its own ``WorkerMessage`` enum. Messages are discriminated by ``kind``.
 """
 
 import sys
+from datetime import UTC, datetime
 from typing import Annotated, Literal
 
 import orjson
-from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, TypeAdapter
 
 from respec_worker.providers import Provider
 
 Reason = Literal[
     "auth",
     "quota",
+    "daily_quota",
     "rate_limit",
     "model_unavailable",
     "network",
@@ -28,6 +30,23 @@ Reason = Literal[
 
 Stage = Literal["fetching", "calling_model", "waiting_rate_limit"]
 """What a running extraction is doing."""
+
+
+def describe_reset(retry_at: datetime | None, now: datetime) -> str:
+    """When a quota comes back, in words: the UTC time and how far away it is.
+
+    Without a ``retry_at`` the Provider did not say, so only the usual daily
+    reset is named.
+    """
+    if retry_at is None:
+        return "once the quota resets, which is usually within a day"
+    seconds = (retry_at - now).total_seconds()
+    if seconds < 3600:
+        away = "under an hour"
+    else:
+        hours = round(seconds / 3600)
+        away = f"about {hours} hour{'s' if hours > 1 else ''}"
+    return f"after {retry_at.astimezone(UTC):%Y-%m-%d %H:%M} UTC (in {away})"
 
 
 class _Message(BaseModel):
@@ -154,12 +173,17 @@ class Relationships(_Message):
 
 
 class Failed(_Message):
-    """The run failed. ``message`` is one plain sentence with a next step."""
+    """The run failed. ``message`` is one plain sentence with a next step.
+
+    ``retry_at`` is when the quota comes back, as a UTC time, for a
+    ``daily_quota`` failure whose Provider said when; null for every other.
+    """
 
     kind: Literal["failed"] = "failed"
     provider: Provider
     reason: Reason
     message: str
+    retry_at: AwareDatetime | None = None
 
 
 AnyMessage = Started | Progress | Done | Entities | Relationships | Failed
