@@ -326,7 +326,7 @@ def extract_once(
     return Attempt(done.stdout, False, f"exit {done.returncode}", seconds)
 
 
-_RATE_LIMITED: Final = ("rate_limit", "quota")
+_RATE_LIMITED: Final = ("rate_limit", "quota", "daily_quota")
 
 
 def _log_lines(folder: Path) -> list[dict[str, object]]:

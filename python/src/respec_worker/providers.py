@@ -69,8 +69,9 @@ PROVIDERS: dict[Provider, ProviderSpec] = {
 # 2026-10-09 (HTTP 503 on every call for over an hour). A Provider without a
 # key is skipped. The two nemotron entries each completed both passes on a
 # 28k-character article on 2026-11-18, and flash-lite is Gemini's default.
-# gemma-4-31b-it failed that article as bad_output after 381 s, so no third
-# family is confirmed yet and the last two entries share one.
+# gemma-4-31b-it completed it once in 914 s after a 503 and a bad_output (the
+# latter during a worker mutation test, so inconclusive); it stays out until a
+# clean check, so no third family is confirmed and the last two share one.
 FALLBACK_MODELS: tuple[tuple[Provider, str], ...] = (
     ("gemini", "gemini-flash-lite-latest"),
     ("openrouter", "nvidia/nemotron-3.5-super-vl:free"),
