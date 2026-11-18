@@ -9,8 +9,10 @@ import httpx
 import orjson
 import pytest
 from model_specs import spec_response
+from test_call_deadline import FakeClock, Trickle
 from test_cli import ARTICLES, SHIPMENT_ENTITIES, SHIPMENT_LINKS
 
+from respec_worker import client
 from respec_worker.cli import main
 from respec_worker.messages import (
     MESSAGE_ADAPTER,
@@ -424,3 +426,27 @@ def test_fallback_a_daily_quota_among_other_failures_is_not_the_runs_reason_unle
     assert isinstance(final, Failed)
     assert (final.reason, final.retry_at) == ("daily_quota", None)
     assert "Try again once the quota resets" in final.message
+
+
+def test_fallback_a_call_that_hangs_past_its_deadline_falls_back(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A Provider that trickles bytes for longer than the deadline fails the call
+    as `network`, which is not retried, and the pass moves on at once."""
+    clock = FakeClock()
+    real_chat = client.chat
+    monkeypatch.setattr(
+        client, "chat", lambda *args, **kwargs: real_chat(*args, clock=clock, **kwargs)
+    )
+    hung = Trickle(clock, seconds=60, chunks=1000)
+    network = FakeNetwork(
+        {PRIMARY: [httpx.Response(200, stream=hung)], FIRST: BOTH_PASSES}
+    )
+
+    code, messages = _run(network, capsys, monkeypatch, "--fallback")
+
+    assert code == 0
+    assert network.calls == [PRIMARY, FIRST, FIRST]
+    assert hung.sent == 11
+    (notice,) = _falling_back(messages)
+    assert "did not answer in time" in notice.detail

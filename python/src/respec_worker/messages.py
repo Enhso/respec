@@ -93,7 +93,8 @@ FAILURE_TEXT: dict[Reason, FailureText] = {
         "try again later, or choose another model once that is possible",
     ),
     "network": FailureText(
-        "Could not reach {provider}", "check the internet connection and try again"
+        "Could not reach {provider}, or it did not answer in time",
+        "check the internet connection and try again",
     ),
     "fetch": FailureText(
         "The article could not be read", "check the address or the file, then try again"

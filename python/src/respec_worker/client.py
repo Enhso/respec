@@ -25,7 +25,8 @@ TIMEOUT_SECONDS = 60.0
 """The default timeout: enough for a one-word reply."""
 
 LONG_TIMEOUT_SECONDS = 600.0
-"""The read timeout for a real-sized pass; the 2026-10-01 probe took 213 s."""
+"""The read timeout, and the deadline for the whole call, of a real-sized pass;
+the 2026-10-01 probe took 213 s."""
 
 MAX_ATTEMPTS = 6
 """How many times ``chat_with_retries`` tries before giving up on a 429."""
@@ -78,26 +79,50 @@ def chat(
     timeout: float = TIMEOUT_SECONDS,
     transport: httpx.BaseTransport | None = None,
     now: Callable[[], datetime] = _utc_now,
+    clock: Callable[[], float] = time.monotonic,
 ) -> str:
     """Send one chat request to ``provider`` and return the reply text.
 
-    The endpoint comes only from the Provider table. ``timeout`` is the time
-    allowed for each stage of the request, except connecting, which never gets
-    more than the default. ``transport`` replaces the network and ``now`` the
-    clock, in tests. Raises ``ChatFailure`` on any failure.
+    The endpoint comes only from the Provider table. ``timeout`` limits each
+    stage of the request, except connecting, which never gets more than the
+    default, and also the whole call: a reply still arriving ``timeout``
+    seconds after the call began fails as ``network``, however steadily its
+    bytes trickle in. ``transport`` replaces the network, and ``now`` and
+    ``clock`` the wall clock and the stopwatch, in tests. Raises ``ChatFailure``
+    on any failure.
     """
     spec = PROVIDERS[provider]
     payload = {"model": model, "messages": messages, "max_tokens": max_tokens}
     limits = httpx.Timeout(timeout, connect=min(timeout, TIMEOUT_SECONDS))
+    started = clock()
     try:
-        with httpx.Client(transport=transport, timeout=limits) as client:
-            response = client.post(
+        with (
+            httpx.Client(transport=transport, timeout=limits) as client,
+            client.stream(
+                "POST",
                 spec.url,
                 content=orjson.dumps(payload),
                 headers={
                     "Authorization": f"Bearer {key}",
                     "Content-Type": "application/json",
                 },
+            ) as streamed,
+        ):
+            body = bytearray()
+            for chunk in streamed.iter_bytes():
+                body += chunk
+                if clock() - started > timeout:
+                    raise ChatFailure(
+                        "network", failure_message("network", provider, model)
+                    )
+            # Only these parts of the reply are used below; a copied
+            # Content-Encoding would make httpx decode the body twice.
+            response = httpx.Response(
+                streamed.status_code,
+                headers={
+                    k: v for k, v in streamed.headers.items() if k == "retry-after"
+                },
+                content=bytes(body),
             )
     except httpx.TransportError as err:
         # Timeouts and connection errors. The error text is not shown.
