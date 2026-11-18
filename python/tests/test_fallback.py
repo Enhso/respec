@@ -22,7 +22,7 @@ from respec_worker.messages import (
     Progress,
     Relationships,
 )
-from respec_worker.providers import FALLBACK_MODELS, PROVIDERS, Provider
+from respec_worker.providers import PROVIDERS, Provider
 
 KEYS: dict[Provider, str] = {
     "gemini": "gemini-key-0123456789",
@@ -31,7 +31,19 @@ KEYS: dict[Provider, str] = {
 ARTICLE_URL = "https://news.example/articles/42"
 PRIMARY: tuple[Provider, str] = ("gemini", "primary-model")
 ModelId = tuple[Provider, str]
-FIRST, SECOND, THIRD, FOURTH = FALLBACK_MODELS
+# A fixed list, so these tests do not change each time the real one does.
+TEST_FALLBACK: tuple[ModelId, ...] = (
+    ("gemini", "gemini-fallback-a"),
+    ("openrouter", "openrouter-fallback-a"),
+    ("gemini", "gemini-fallback-b"),
+    ("openrouter", "openrouter-fallback-b"),
+)
+FIRST, SECOND, THIRD, FOURTH = TEST_FALLBACK
+
+
+@pytest.fixture(autouse=True)
+def _fixed_fallback_list(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("respec_worker.fallback.FALLBACK_MODELS", TEST_FALLBACK)
 
 
 def _chat(content: str) -> httpx.Response:
