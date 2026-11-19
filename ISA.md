@@ -5,7 +5,7 @@ project: respec
 phase: climbing
 progress: 21/67
 started: 2026-10-01T19:12:36Z
-updated: 2026-11-18T00:00:00Z
+updated: 2026-11-19T00:00:00Z
 principal_stated_goal: "we'll build a new fork of it keeping only essential and reusable items (if any) and start from scratch"
 principal_stated_goal_source: conversation
 principal_stated_goal_signal: 4
@@ -401,6 +401,8 @@ Why: measure quality on real articles before trusting or tuning prompts, the cal
   - The list, until settings exist: Flash-Lite, then `nvidia/nemotron-3.5-super-vl:free`, then `nvidia/nemotron-3-ultra-550b-a55b:free`. `gemma-4-31b-it` is left out until a clean check. On the 28k article it got a 503, then a `bad_output` (while the worker code was being mutation-tested, so inconclusive), then completed in 914 s. No third family is confirmed, so the last two share one.
   - Each call has a total deadline of 600 s, past which it fails as `network`, because a per-read timeout let a trickling Provider hold a call open (Learning, 2026-11-18).
   - Passing both Providers' keys to the worker is S6 work (the job runner). The stub page's test extraction still runs one Provider.
+- 2026-11-19: **Sanctions and arrests are labelled as Events, and a date without a year is null (S4).** A sanction, arrest, seizure or expulsion the article reports as an act is a key Event: the sanctioned or arrested party and the acting body each link to it with `PARTICIPATED_IN`, with no direct `FLAGGED_BY` for the same fact. A standing sanction stated without the act is a direct `FLAGGED_BY`. This is how adjudicator A labelled set A, and it is how the Models write it: over 88 samples (Flash-Lite 72, Super-VL 16), every reported sanction or arrest a Model linked at all came as `PARTICIPATED_IN` to an Event, and of 9 direct `FLAGGED_BY` links, one stood for an act (a ship stopped by a national authority). The rest were a standing sanction, a regulator, or a ship's flag state misread as "flagged". A date the body gives without a year ("on June 4") is null, never the publication year. Both rules are in `evals/README.md` (Label file). One sanction was missed rather than reshaped: no Flash-Lite sample proposed an article's 2022 sanction in any form, so its five links stay in the labels as a real miss.
+  - Rejected: crediting a direct `FLAGGED_BY` between the two ends of a sanction Event. It would change the scorer for a shape the Models almost never produce.
 
 ## Learning
 
