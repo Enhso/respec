@@ -1,6 +1,6 @@
 # Respec brief
 
-As of 2026-11-18. Rewritten every session; the spec is `ISA.md`, the order of work `PLAN.md`.
+As of 2026-11-19. Rewritten every session; the spec is `ISA.md`, the order of work `PLAN.md`.
 
 ## What it is
 
@@ -12,10 +12,10 @@ Respec restarts Specter, which never ran end to end: 29 recorded extraction runs
 
 ## Where it stands
 
-- **Built:** CI with locked builds; the Rust server shell with key storage and Host and Origin checks; the macOS release, the one-command installer and a login agent; and the extraction worker. The worker makes two passes, grounds every item in a verbatim sentence, sizes its output budget from each Model's spec, and detects truncation. It retries per-minute limits and outages, stops at once on a daily quota and says when to retry, and with `--fallback` moves a failing pass to the next Model in a list that spans two Model families. Also built: the quality eval with its labelled set. Version 0.3.0.
+- **Built:** CI with locked builds; the Rust server shell with key storage and Host and Origin checks; the macOS release, the one-command installer and a login agent; and the extraction worker. The worker makes two passes, grounds every item in a verbatim sentence, sizes its output budget from each Model's spec, and detects truncation. It retries per-minute limits and outages, stops at once on a daily quota and says when to retry, and with `--fallback` moves a failing pass to the next Model in a list that spans two Model families and now starts with Super-VL. Also built: the quality eval with its 12 adjudicated label files. Version 0.3.0.
 - **Not built:** the store, the job runner and Documents API, the review queue, entity matching, navigation, the settings page.
-- **In progress:** the quality gate. All 12 articles have a blind second labelling, and half are adjudicated. The second Model's eval is part run.
-- **Unverified on the Operator's Mac:** he installed `v0.2.0` himself without problems, but a real-sized extraction on his own keys has not run. That check follows the `v0.3.0` release.
+- **Quality gate: passed, conditionally.** The principal chose OpenRouter's free `nvidia/nemotron-3.5-super-vl` as the extraction Model on 7 of 12 articles (see Evidence). The gate closes when its run covers the other 5 and all three bars still hold; the free tier's daily cap makes that one or two more days. Next milestone: the store.
+- **Unverified on the Operator's Mac:** he installed `v0.2.0` himself without problems, but a real-sized extraction on his own keys has not run. `v0.3.0` is released, and a self-check message (both Providers, a reboot, and whether he would review such a list) is with the principal to forward.
 
 ## Architecture
 
@@ -39,42 +39,43 @@ Respec restarts Specter, which never ran end to end: 29 recorded extraction runs
 | Review before Knowledge, always | The graph stays trustworthy | Auto-accept above a confidence | Review load per article |
 | No chunking of long articles | Measured: no gain (see Evidence) | Pass 2 per 8k-character part | Long articles recall fewer links |
 | Ordered fallback across Model families, opt-in per run | Free Models fail in groups: Gemini's Flash Models returned 503 together for hours, and a default died within 6 weeks | One default per Provider; automatic Model choice from live lists | A dead Model is replaced by a release until settings exist; evals must run without fallback so scores never mix Models |
+| Super-VL extracts, Flash-Lite is its fallback | It clears all three recall bars where Flash-Lite misses two (Events 0.91 against 0.56, Relationships 0.69 against 0.47, same 7 articles) | Flash-Lite with the Relationships bar lowered to 0.5 | 5 to 6 minutes per article against 20 s; about twice the list to review; about 20 articles a day on the free cap; 1 attempt in 6 fails |
+| A reported sanction or arrest is an Event | Both Models write it that way: in 88 samples a direct `FLAGGED_BY` stood for an act once | Crediting either shape in the scorer | A Model that writes the direct link scores nothing for it |
 | A daily quota ends the run with a retry time | Retrying a per-day 429 wastes minutes and still fails | Retrying every 429 alike | The job runner must turn it into a pause |
 | Labels checked by a blind second labeller and an adjudicator | The principal wants minimal oversight, and a check that starts from the draft anchors on it | The principal checks every label | The checker is also an LLM; agreement between two blind sets is the evidence, plus an optional 10-item spot check |
 
 ## Evidence
 
-**Method.** Twelve corpus articles, five over 15k characters. For each, Claude agents (never the Models under test) drafted the key Entities, Events and Relationships, each with its sentence, and the principal checks them, asking what is missing before what is wrong. Each Model runs three samples per article, and recall is micro-averaged over every labelled item and sample. Matching rules are fixed in `evals/README.md`; a Relationship counts if it joins the right two Entities, in either direction, with a type the label accepts. Prompt changes were tuned on 4 articles and judged on the other 8. Labels and runs stay local, since they name real people.
+**Method.** Twelve corpus articles, five over 15k characters. For each, a Claude agent (never a Model under test) drafted the key Entities, Events and Relationships, each with its sentence. A second agent labelled every article again without seeing the draft, and an adjudicator who could not tell the sets apart settled each disagreement: 237 of them across 12 articles, each logged with a one-line reason. Each Model runs three samples per article, and recall is micro-averaged over every labelled item and sample. Matching rules are fixed in `evals/README.md`; a Relationship counts if it joins the right two Entities, in either direction, with a type the label accepts. Prompt changes were tuned on 4 articles and judged on the other 8. Labels and runs stay local, since they name real people.
 
-**Results**, `gemini-flash-lite-latest`, 12 articles, labels drafted and not yet adjudicated:
+**Results** on adjudicated labels, current prompt. Flash-Lite is pooled over two sets of 3 samples per article taken six weeks apart; Super-VL has 19 samples over the 7 articles its free quota has reached so far.
 
-| Recall of key items | Bar | First prompt | Current prompt, all 12 | Current, 8 held out |
-|---|---|---|---|---|
-| Entities | 0.8 | 0.86 | 0.89 | 0.91 |
-| Events | 0.6 | 0.25 | 0.62 | 0.63 |
-| Relationships | 0.6 (provisional) | 0.30 | 0.45 | 0.40 |
+| Recall of key items | Bar | Flash-Lite, all 12 | Flash-Lite, the same 7 | Super-VL, 7 articles | Super-VL, 5 held out |
+|---|---|---|---|---|---|
+| Entities | 0.8 | 0.91 | 0.91 | 0.89 | 0.85 |
+| Events | 0.6 | 0.57 | 0.56 | 0.91 | 0.89 |
+| Relationships | 0.6 (provisional) | 0.50 | 0.47 | 0.69 | 0.62 |
 
-**Adjudicated labels, first half** (6 articles, Flash-Lite pooled over two sets of 36 samples taken six weeks apart): Entities 0.93, Events 0.56, Relationships 0.56. The drafts of the same 6 articles gave 0.48 for Relationships: the drafters over-included links, and the adjudicator cut the non-key ones. The two blind labellings agreed on most Entities and diverged most on Relationships (adjudicator A logged 137 decisions on 6 articles).
+Flash-Lite on its 8 held-out articles: 0.94, 0.59 and 0.45. The prompt was tuned on Flash-Lite, so Super-VL's held-out numbers are the cleaner test. Super-VL is slower and more prolific: a median 337 s per article against 17 s, about 65 Entities and 61 Relationships per article against 48 and 32, and 23% of its proposed links recall a key link against 30% for Flash-Lite. Gate A measures recall only, so part of its lead is volume; review cost is measured at gate B. It failed 4 of 23 attempts (3 `bad_output`, 1 `other`).
 
-**Second Model.** OpenRouter's free `nvidia/nemotron-3.5-super-vl` and `nemotron-3-ultra-550b` each completed both passes on a 28k-character article (374 s and 572 s, against about 25 s for Flash-Lite). Its full eval is limited to 50 requests a day and is part run.
+**Adjudication** raised Flash-Lite's Relationship recall from 0.44 on the drafts to 0.50, mostly by cutting links the drafters over-included. The two blind sets agreed on most Entities and diverged most on Relationships.
 
 **What moved the numbers.**
 
 - **Grounding.** Our fetch left a space before the punctuation after each link. Models quote the sentence cleanly, so the strict matcher dropped up to half of one article's Entities. The matching rule now ignores case, end ellipses and whitespace that is not between two words, and still admits no fabricated sentence: all 232 sentences of four live replies are found, against 202 before. The fetch was fixed too.
 - **Prompt.** The first prompt asked for "fewer, well-grounded items" and had no trade type, so supply chains came out as location links. Asking for everything stated, listing what counts as an Event, and adding `SUPPLIED` doubled Event recall on articles the change was not tuned on. The cost is review load: about 51 Proposals per article before, 76 now.
-- **Length.** Long articles recall fewer links (0.34 against 0.54 for short ones). Splitting Pass 2 into parts did not help (0.34 to 0.36), so the gap is not context length.
-- **Noise.** Two independent sets of 3 samples gave Event recall of 0.67 and 0.48 on the same articles, and a full rerun six weeks later moved Events from 0.62 to 0.52 on the same labels. Differences under about 0.15 are not signal at this size, so the gate pools both sets of runs.
+- **Length.** Long articles recall fewer links: 0.40 against 0.57 for Flash-Lite, 0.64 against 0.86 for Super-VL. Splitting Pass 2 into parts did not help Flash-Lite (0.34 to 0.36 on drafted labels), so the gap is not context length.
+- **Noise.** A full Flash-Lite rerun six weeks later moved Events from 0.62 to 0.53 on the same adjudicated labels. Differences under about 0.15 are not signal at this size, so Flash-Lite's numbers pool both sets of runs. Super-VL's leads (0.35 on Events, 0.22 on Relationships) are past that band.
 
 **Engineering checks.** 522 worker tests and 46 Rust tests run in CI with locked builds; a test-isolation job proves no test touches real data. Each rule of the matcher and the scoring was broken on purpose to confirm a test catches it.
 
 ## Risks and open questions
 
-- **Relationship recall is below its provisional bar.** About 0.56 on adjudicated labels so far, against 0.6. Next: adjudicate the second half, then the principal chooses one of three: re-set the bar with a stated reason, try one more Pass 2 change (long articles are the gap), or stop and re-plan (the kill switch).
-- **A labelling rule decides about 10 links.** Is a sanction a person `FLAGGED_BY` an agency, or both linked to a sanction Event? The labels currently credit only the second. It is settled in the labelling guide before the second half is adjudicated.
-- **Free Models rot.** The OpenRouter default chosen on 2026-10-02 was gone by 2026-11-18. `-latest` aliases hide the Model behind them, Gemini Flash's free tier allows 20 requests a day, and OpenRouter gates some Models per app with a 403. Mitigation: the fallback list and plain failure messages. Refreshing the list takes a release until settings exist.
+- **The gate rests on 7 of 12 articles.** Super-VL's numbers come from 19 samples; its weakest article so far (a 28k-character one) recalls 0.34 of key links. Its run resumes each day the free quota resets. If a bar falls once all 12 are in, the verdict goes back to the principal, with a 0.5 Relationships bar as the fallback position.
+- **The chosen Model is a free OpenRouter Model, and those rot.** The OpenRouter default chosen on 2026-10-02 was gone by 2026-11-18. If Super-VL goes, extraction falls back to Flash-Lite at 0.57 and 0.50 recall. The principal kept the settings session whole (live Model lists, switching, a test button), so a replacement will not need a release after v1's settings land.
+- **Slow and sometimes failing.** 5 to 6 minutes per article, and 1 attempt in 6 fails after minutes of waiting before the fallback takes over. The job runner must show progress and resume; the worker's 600 s call deadline has not been hit (slowest two-pass run: 639 s).
 - **The Operator's keys are untested.** Account state sank Specter. His install worked, and a self-check message after `v0.3.0` runs a real-sized extraction on each of his Providers.
-- **Review willingness is untested.** Flash-Lite proposes about 76 items per article, and Super-VL about 165 on a long one. His self-check asks whether he would review such a list.
-- **Second Model unproven at scale.** The free tier's 50 requests a day stretch a full eval over three days.
+- **Review willingness is untested.** Super-VL proposes about 125 items per article, and up to 170 on a long one. His self-check asks whether he would review such a list, and gate B measures it.
 - **Label quality.** Both labellers and the adjudicator are LLMs. Agreement between two blind sets, and an optional 10-decision spot check, are the evidence.
 - **Pre-1.0 store.** Pinned exactly; rebuild from files on any format change; SQLite is the fallback.
 
@@ -82,14 +83,15 @@ Respec restarts Specter, which never ran end to end: 29 recorded extraction runs
 
 - **Why not a hosted web app?** One non-technical user, sensitive research and no budget. A local app removes auth, hosting and shared-state failures, and the install path is tested on his own Mac before the build continues.
 - **Why trust an LLM with intelligence data?** It never writes Knowledge. Every Proposal carries a sentence the code has found verbatim in the article, and only an approval moves it into Knowledge.
+- **Doesn't the Model that proposes more simply win on recall?** Partly. 23% of Super-VL's links recall a key link against 30% of Flash-Lite's, so its list is longer and a little thinner. But it finds 14 of about 20 key links per article where Flash-Lite finds 10, and no amount of review recovers a link that was never proposed. Review cost is measured at gate B, on real use.
 - **Why free Models?** The user pays nothing, and the design assumes slow, rate-limited calls. The cost shows up as outages and quotas, handled by retries and fallback.
-- **How do you know the eval is not gamed?** The labellers are never a Model under test, a second labelling is done blind to the first, and the prompt was judged on articles it was not tuned on: held-out Event recall went from 0.31 to 0.63, Relationship recall from 0.26 to 0.40. The matching rules are written down, and the two added after the first results both remove credit rather than add it.
+- **How do you know the eval is not gamed?** The labellers are never a Model under test, a second labelling is done blind to the first, and the prompt was judged on articles it was not tuned on. It was tuned on Flash-Lite, and Super-VL, never tuned on, clears every bar on the 5 held-out articles it has run so far. The matching rules are written down, and the two added after the first results both remove credit rather than add it.
 - **Why Rust and Python?** Rust holds the invariants and the only handle on the store; Python is where model tooling lives. The boundary is a subprocess speaking JSON Lines, with fixtures both sides test against.
 - **What if mnestic breaks?** The files are the truth. Rebuild the index, or move it to SQLite without touching the data.
 
 ## Schedule
 
-Reference class: Specter overran its plan by at least 4x and never finished. The estimate applies 2x to the raw sessions left for the 50% date and 3x for the 80% date, in a Monte Carlo over the stated capacity. Re-fit 2026-11-18 with 13 to 17 sessions left at 7 a week: 50% on 2026-12-26, 80% on 2027-01-11, a 63% chance of v1 by 2026-12-31. Three proposed cuts (Model settings, the diagnostics zip, folding the hardening session) raise that to 81%. The first plan slipped six weeks while work waited on people, not on sessions; minimal oversight removes most of those waits.
+Reference class: Specter overran its plan by at least 4x and never finished. The estimate applies 2x to the raw sessions left for the 50% date and 3x for the 80% date, in a Monte Carlo over the stated capacity. Re-fit 2026-11-18 with 13 to 17 sessions left at 7 a week: 50% on 2026-12-26, 80% on 2027-01-11, a 63% chance of v1 by 2026-12-31. Three proposed cuts (Model settings, the diagnostics zip, folding the hardening session) would have raised that to 81%; the principal declined them on 2026-11-19, so 63% stands. The first plan slipped six weeks while work waited on people, not on sessions; minimal oversight removes most of those waits.
 
 ## Session log
 
@@ -98,3 +100,4 @@ Reference class: Specter overran its plan by at least 4x and never finished. The
 - **2026-10-07 to 09, worker.** Two passes with Events, per-item validation, verbatim sentences with offsets, output budget from each Model's spec, truncation reported as such. Quota pause and fallback wait on the pairing call.
 - **2026-10-09, quality gate, first half.** Matcher and fetch fixes, the eval with 12 drafted labels, a prompt round with `SUPPLIED`, chunking settled as no. Waiting on the label check and the gate call.
 - **2026-11-18, quality gate, second half (part), and worker finish.** The Operator installed on his own. Labels went to a blind second labelling with an adjudicator, and half are adjudicated. The OpenRouter default was replaced after it vanished, and Gemini Flash dropped out. Daily quota, outage retries, gated-Model messages, fallback across families and a total call deadline were added. Version 0.3.0.
+- **2026-11-19, quality gate decided.** Sanctions and arrests labelled as Events, after checking how both Models write them. The second half adjudicated, so all 12 label files are checked. Super-VL chosen over Flash-Lite on 7 of 12 articles, conditional on the rest; the fallback list now starts with it. No scope cuts.
