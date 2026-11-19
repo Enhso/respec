@@ -176,7 +176,7 @@ Why: the friend picks a working free model himself, without editing a file, and 
 ### F6 · Mac install and handoff
 Why: the friend installs once from written instructions and never needs a terminal again.
 
-- [ ] ISC-45: In week one, on the friend's Mac and with his own keys, a test extraction of a 20k-character article succeeds.
+- [ ] ISC-45: At the handoff, on the friend's Mac and with his own keys, a test extraction of a 20k-character article succeeds.
 - [ ] ISC-38: A fresh macOS user account with no Rust or Python gets a running Respec by following the install instructions. Only a real Mac closes this; a CI runner ships with Rust and Python and skips Gatekeeper.
 - [ ] ISC-39: After a reboot, Respec answers at the friend's bookmark without him running any command.
 - [ ] ISC-40: The friend ingests and reviews an article we did not pre-stage, unsupervised, within a week of the pairing session. (after: ISC-11, ISC-38)
@@ -251,7 +251,7 @@ Why: measure quality on real articles before trusting or tuning prompts, the cal
 | ISC-36 | screenshot | test button success and failure messages | both shown | Interceptor | derived: friend-usable |
 | ISC-37 | bash | unit test of provider-to-host mapping for every provider | exact hosts | `uv run pytest -k provider_hosts` | literal |
 | ISC-59 | curl | GET settings returns only the last four characters of each key | masked | `curl -s localhost:PORT/api/settings` | literal |
-| ISC-45 | manual | pairing call 1: his keys, his Mac, test extraction of a 20k-char article | success | principal on encounter | derived: friend-usable |
+| ISC-45 | manual | handoff (PLAN T): his keys, his Mac, test extraction of a 20k-char article | success | principal on encounter | derived: friend-usable |
 | ISC-38 | manual | fresh macOS account on a real Mac, install by following the instructions | running | principal on encounter | derived: friend-usable |
 | ISC-39 | manual | reboot, open bookmark, app responds | responds | principal on encounter | derived: friend-usable |
 | ISC-40 | manual | friend reports an unstaged article reviewed, unsupervised | done | principal on encounter | derived: friend-usable |
@@ -409,6 +409,9 @@ Why: measure quality on real articles before trusting or tuning prompts, the cal
   - The condition: ISC-43, 43.1 and 62 tick when Super-VL's run covers all 12 articles at 3 samples and all three bars still hold. The bars stay at 0.6. If one falls, the verdict goes back to the principal, with re-setting ISC-43.1 to 0.5 as the fallback position. Neither outcome is the kill switch, so S5 starts now.
   - In code: `FALLBACK_MODELS` now starts with Super-VL, then Flash-Lite, then Ultra-550b. The S6 job runner calls `extract --provider openrouter --fallback`. The worker's total call deadline stays 600 s: no Super-VL attempt failed on it, and its slowest both-pass run took 639 s.
   - Rejected: re-setting ISC-43.1 to 0.5 for Flash-Lite (the recommendation before Super-VL's numbers), since a free Model meets the 0.6 bar and Flash-Lite also misses the Events bar.
+- 2026-11-19: **No contact with the friend until the prototype is ready to use (the principal's call).** Respec is a side project, so the friend is not asked for checks along the way. The self-check message is dropped: his keys on a real-sized extraction (ISC-45) and the bookmark after a reboot (ISC-39) are checked at the handoff (PLAN T), when he upgrades and starts using it. The principal's optional spot-check of adjudication decisions is dropped too; the blind second labelling and the adjudication are the check.
+  - Cost: account state on his keys, which sank Specter, stays untested until the handoff. Mitigation: plain failure messages and fallback across two Providers.
+- 2026-11-19: **Label sentences must be exact slices (the principal's call).** `evals lint` will reject a sentence that is not a character-for-character slice of the body and two Relationships that join the same pair of Entities. The blind relabelling showed the lenient match let line breaks pass as spaces. 39 sentences in 3 label files must be re-sliced first.
 - 2026-11-19: **No scope cuts (the principal's call).** S11 keeps live Model lists, switching and "test this Model" (ISC-34 to 36), ISC-60 stays, and S13 stays its own session. The v1-by-December chance stays at about 63% at 7 sessions a week (PLAN, Estimate).
 
 ## Learning
@@ -480,4 +483,4 @@ Why: measure quality on real articles before trusting or tuning prompts, the cal
 - ISC-14.1: `uv run pytest -k daily_quota` selected no tests before `c7efb9c` (exit 5) and passes 32 at `0626950`. The fixtures are built from a live Gemini per-day 429 body captured on 2026-11-18. Five planted faults were each caught, among them retrying a per-day 429 and dropping `retry_at`.
 - ISC-52: `uv run pytest -k fallback` selected one unrelated budget test, renamed in `b70f343` so the probe exited 5. It passes 13 at `7a567fa`, including a call that hangs past its deadline and falls back. Of nine planted faults, seven were caught and one was equivalent. Breaking the skip of failed Models made the run hang instead of fail, and the total deadline was added for that hang.
 - ISC-53: `uv run pytest -k failure_messages` selected no tests before `f94f18e` (exit 5) and passes 46 at `0626950`. It walks every reason. Six planted faults were caught, among them a reason left out of the table and a gated 403 reported as `auth`.
-- ISC-42: on 2026-11-18 `evals lint` passed format checks but counted 0 checked label files. On 2026-11-19 it prints "12 label files, 12 checked, 5 over 15,000 characters, 0 with problems". Checked means adjudicated: each article was labelled twice, the second time blind, and two adjudicators settled 237 disagreements (265 decision rows) without knowing which set was the draft. A spot-check sample of 10 is in `.scratch/s4-gate-a/spotcheck-sample.txt`.
+- ISC-42: on 2026-11-18 `evals lint` passed format checks but counted 0 checked label files. On 2026-11-19 it prints "12 label files, 12 checked, 5 over 15,000 characters, 0 with problems". Checked means adjudicated: each article was labelled twice, the second time blind, and two adjudicators settled 237 disagreements (265 decision rows) without knowing which set was the draft.
